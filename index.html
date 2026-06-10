@@ -396,20 +396,57 @@ const QUALIFIER_COUNT = 16;
 
 // 48 equipos · 12 grupos de 4 · formato oficial Mundial 2026
 // ⚠️ Admin: verificar grupos contra el sorteo oficial (5 dic 2024)
+// Cada equipo: { name: string, code: ISO-3166-1-alpha-2 (lowercase) }
 function defaultGroups() {
   return [
-    { name: 'A', teams: ['🇲🇽 México',       '🇵🇱 Polonia',         '🇪🇨 Ecuador',        '🇸🇳 Senegal']         },
-    { name: 'B', teams: ['🇺🇸 USA',           '🏴󠁧󠁢󠁥󠁮󠁧󠁿 Inglaterra',   '🇵🇦 Panamá',         '🇺🇾 Uruguay']         },
-    { name: 'C', teams: ['🇨🇦 Canadá',        '🇲🇦 Marruecos',       '🇨🇮 Costa de Marfil','🇺🇿 Uzbekistán']      },
-    { name: 'D', teams: ['🇫🇷 Francia',        '🇦🇷 Argentina',       '🇯🇵 Japón',          '🇸🇦 Arabia Saudita']  },
-    { name: 'E', teams: ['🇪🇸 España',         '🇧🇷 Brasil',          '🇰🇷 Corea del Sur',  '🇿🇦 Sudáfrica']       },
-    { name: 'F', teams: ['🇩🇪 Alemania',       '🇨🇴 Colombia',        '🇪🇬 Egipto',         '🇯🇴 Jordania']        },
-    { name: 'G', teams: ['🇵🇹 Portugal',       '🇷🇸 Serbia',          '🇮🇷 Irán',           '🇧🇴 Bolivia']         },
-    { name: 'H', teams: ['🇳🇱 Países Bajos',   '🇳🇬 Nigeria',         '🇮🇶 Irak',           '🇯🇲 Jamaica']         },
-    { name: 'I', teams: ['🇧🇪 Bélgica',        '🇨🇩 Rep. Congo',      '🇦🇺 Australia',      '🇻🇪 Venezuela']       },
-    { name: 'J', teams: ['🇮🇹 Italia',         '🇨🇲 Camerún',         '🇭🇳 Honduras',       '🇵🇾 Paraguay']        },
-    { name: 'K', teams: ['🇭🇷 Croacia',        '🇹🇷 Turquía',         '🇹🇳 Túnez',          '🇳🇿 Nueva Zelanda']   },
-    { name: 'L', teams: ['🇨🇭 Suiza',          '🇩🇰 Dinamarca',       '🇦🇹 Austria',        '🇷🇴 Rumanía']         },
+    { name: 'A', teams: [
+      { name: 'México',         code: 'mx' }, { name: 'Polonia',        code: 'pl' },
+      { name: 'Ecuador',        code: 'ec' }, { name: 'Senegal',        code: 'sn' },
+    ]},
+    { name: 'B', teams: [
+      { name: 'USA',            code: 'us' }, { name: 'Inglaterra',     code: 'gb-eng' },
+      { name: 'Panamá',         code: 'pa' }, { name: 'Uruguay',        code: 'uy' },
+    ]},
+    { name: 'C', teams: [
+      { name: 'Canadá',         code: 'ca' }, { name: 'Marruecos',      code: 'ma' },
+      { name: 'Costa de Marfil',code: 'ci' }, { name: 'Uzbekistán',     code: 'uz' },
+    ]},
+    { name: 'D', teams: [
+      { name: 'Francia',        code: 'fr' }, { name: 'Argentina',      code: 'ar' },
+      { name: 'Japón',          code: 'jp' }, { name: 'Arabia Saudita', code: 'sa' },
+    ]},
+    { name: 'E', teams: [
+      { name: 'España',         code: 'es' }, { name: 'Brasil',         code: 'br' },
+      { name: 'Corea del Sur',  code: 'kr' }, { name: 'Sudáfrica',      code: 'za' },
+    ]},
+    { name: 'F', teams: [
+      { name: 'Alemania',       code: 'de' }, { name: 'Colombia',       code: 'co' },
+      { name: 'Egipto',         code: 'eg' }, { name: 'Jordania',       code: 'jo' },
+    ]},
+    { name: 'G', teams: [
+      { name: 'Portugal',       code: 'pt' }, { name: 'Serbia',         code: 'rs' },
+      { name: 'Irán',           code: 'ir' }, { name: 'Bolivia',        code: 'bo' },
+    ]},
+    { name: 'H', teams: [
+      { name: 'Países Bajos',   code: 'nl' }, { name: 'Nigeria',        code: 'ng' },
+      { name: 'Irak',           code: 'iq' }, { name: 'Jamaica',        code: 'jm' },
+    ]},
+    { name: 'I', teams: [
+      { name: 'Bélgica',        code: 'be' }, { name: 'Rep. Congo',     code: 'cd' },
+      { name: 'Australia',      code: 'au' }, { name: 'Venezuela',      code: 've' },
+    ]},
+    { name: 'J', teams: [
+      { name: 'Italia',         code: 'it' }, { name: 'Camerún',        code: 'cm' },
+      { name: 'Honduras',       code: 'hn' }, { name: 'Paraguay',       code: 'py' },
+    ]},
+    { name: 'K', teams: [
+      { name: 'Croacia',        code: 'hr' }, { name: 'Turquía',        code: 'tr' },
+      { name: 'Túnez',          code: 'tn' }, { name: 'Nueva Zelanda',  code: 'nz' },
+    ]},
+    { name: 'L', teams: [
+      { name: 'Suiza',          code: 'ch' }, { name: 'Dinamarca',      code: 'dk' },
+      { name: 'Austria',        code: 'at' }, { name: 'Rumanía',        code: 'ro' },
+    ]},
   ];
 }
 
@@ -417,15 +454,28 @@ function defaultGroups() {
 // 2 directos (1° y 2°) + hasta 1 mejor 3° = 3 máximo
 const MAX_PER_GROUP = 3;
 
+// Normalize: old data stored teams as strings, new format is { name, code }
+function normTeam(t) { return typeof t === 'string' ? { name: t.replace(/^[^\wÀ-ɏ]+/u,'').trim(), code: '' } : t; }
 function allGroupTeams() {
-  return (data.groups || defaultGroups()).flatMap(g => g.teams);
+  return (data.groups || defaultGroups()).flatMap(g => g.teams.map(t => normTeam(t).name));
 }
 function teamGroup(teamName) {
-  return (data.groups || defaultGroups()).find(g => g.teams.includes(teamName));
+  return (data.groups || defaultGroups()).find(g => g.teams.some(t => normTeam(t).name === teamName));
 }
 function groupPickCount(groupName, selected) {
   const g = (data.groups || defaultGroups()).find(x => x.name === groupName);
-  return g ? g.teams.filter(t => selected.includes(t)).length : 0;
+  return g ? g.teams.filter(t => selected.includes(normTeam(t).name)).length : 0;
+}
+function teamFlagCode(teamName) {
+  for (const g of (data.groups || defaultGroups())) {
+    const t = g.teams.find(t => normTeam(t).name === teamName);
+    if (t) return normTeam(t).code || '';
+  }
+  return '';
+}
+function flagImg(code, h = 16) {
+  if (!code) return '';
+  return `<img src="https://flagcdn.com/w40/${code}.png" loading="lazy" style="height:${h}px;border-radius:2px;vertical-align:middle;margin-right:5px;flex-shrink:0">`;
 }
 
 const STEPS = [
@@ -806,15 +856,16 @@ function renderStepQualifiers() {
       </div>
       <div class="qualifier-grid">`;
 
-    group.teams.forEach(team => {
-      const isSel = selected.includes(team);
+    group.teams.forEach(rawTeam => {
+      const t = normTeam(rawTeam);
+      const isSel = selected.includes(t.name);
       const isDisabledByGroup = !isSel && groupFull;
       const isDisabled = resultsIn || isDisabledByGroup;
       let cls = 'q-card';
       if (resultsIn) {
-        if (isSel && realQ.includes(team)) cls += ' result-correct selected';
-        else if (isSel && !realQ.includes(team)) cls += ' result-wrong selected';
-        else if (!isSel && realQ.includes(team)) cls += ' result-correct';
+        if (isSel && realQ.includes(t.name)) cls += ' result-correct selected';
+        else if (isSel && !realQ.includes(t.name)) cls += ' result-wrong selected';
+        else if (!isSel && realQ.includes(t.name)) cls += ' result-correct';
         else if (isDisabledByGroup) cls += ' q-card-disabled';
       } else if (isSel) {
         cls += ' selected';
@@ -822,7 +873,7 @@ function renderStepQualifiers() {
         cls += ' q-card-disabled';
       }
       const style = isDisabled ? 'opacity:.45;pointer-events:none' : '';
-      html += `<div class="${cls}" style="${style}" onclick="toggleQualifier('${escJs(team)}')">${escHtml(team)}</div>`;
+      html += `<div class="${cls}" style="${style};display:flex;align-items:center;justify-content:center" onclick="toggleQualifier('${escJs(t.name)}')">${flagImg(t.code)}${escHtml(t.name)}</div>`;
     });
 
     html += `</div></div>`;
@@ -1217,10 +1268,15 @@ function renderAdmin() {
       html += `<div class="card" style="margin-bottom:10px">
         <div class="card-title" style="margin-bottom:8px">Grupo ${escHtml(g.name)}</div>
         <div class="pool-grid">`;
-      g.teams.forEach((team, ti) => {
-        html += `<div class="pool-inp-wrap">
-          <input class="pool-inp" type="text" value="${escHtml(team)}" placeholder="🏳 País"
-            oninput="setGroupTeam(${gi},${ti},this.value)" maxlength="30">
+      g.teams.forEach((rawTeam, ti) => {
+        const t = normTeam(rawTeam);
+        html += `<div class="pool-inp-wrap" style="gap:6px">
+          ${flagImg(t.code, 14)}
+          <input class="pool-inp" type="text" value="${escHtml(t.name)}" placeholder="País"
+            oninput="setGroupTeamName(${gi},${ti},this.value)" maxlength="30">
+          <input class="pool-inp" type="text" value="${escHtml(t.code)}" placeholder="xx" title="Código ISO (ej: ar, br)"
+            style="max-width:36px;color:var(--text2);font-size:.7rem"
+            oninput="setGroupTeamCode(${gi},${ti},this.value)" maxlength="6">
         </div>`;
       });
       html += `</div></div>`;
@@ -1237,9 +1293,10 @@ function renderAdmin() {
       html += `<div style="margin-bottom:12px">
         <div style="font-size:.7rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Grupo ${escHtml(g.name)}</div>
         <div class="qualifier-real-grid">`;
-      g.teams.forEach(t => {
-        const sel = real.includes(t);
-        html += `<button class="qualifier-real-btn ${sel?'selected':''}" onclick="toggleRealQualifier('${escJs(t)}')">${escHtml(t)}</button>`;
+      g.teams.forEach(rawT => {
+        const t = normTeam(rawT);
+        const sel = real.includes(t.name);
+        html += `<button class="qualifier-real-btn ${sel?'selected':''}" onclick="toggleRealQualifier('${escJs(t.name)}')" style="display:inline-flex;align-items:center">${flagImg(t.code,13)}${escHtml(t.name)}</button>`;
       });
       html += `</div></div>`;
     });
@@ -1377,9 +1434,21 @@ function clearResult(key) {
 }
 
 let savePoolTimer = null;
-function setGroupTeam(gi, ti, val) {
+function setGroupTeamName(gi, ti, val) {
   if (!data.groups) data.groups = defaultGroups();
-  if (data.groups[gi]) data.groups[gi].teams[ti] = val;
+  if (data.groups[gi]) {
+    const t = normTeam(data.groups[gi].teams[ti]);
+    data.groups[gi].teams[ti] = { name: val, code: t.code };
+  }
+  saveData();
+}
+function setGroupTeamCode(gi, ti, val) {
+  if (!data.groups) data.groups = defaultGroups();
+  if (data.groups[gi]) {
+    const t = normTeam(data.groups[gi].teams[ti]);
+    data.groups[gi].teams[ti] = { name: t.name, code: val.toLowerCase().trim() };
+    renderAdmin();
+  }
   saveData();
 }
 function setPool(i, val) {
