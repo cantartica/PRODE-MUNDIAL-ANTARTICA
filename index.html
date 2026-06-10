@@ -474,10 +474,24 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
     <hr style="border:none;border-top:1px solid var(--border);margin:4px 0 20px">
 
     <!-- LOGIN -->
-    <div class="form-group">
-      <label class="form-label">Tu nombre para el prode</label>
-      <input id="player-name-inp" class="form-input" type="text" placeholder="Ingresá tu nombre" maxlength="30" autocomplete="off"
-        onkeydown="if(event.key==='Enter')loginPlayer()">
+    <div style="background:rgba(88,192,236,.07);border:1px solid rgba(88,192,236,.2);border-radius:10px;padding:14px 14px 6px;margin-bottom:4px">
+      <div style="font-size:.72rem;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px">Registrá tus datos para jugar</div>
+      <div class="form-group">
+        <label class="form-label">Nombre completo</label>
+        <input id="player-name-inp" class="form-input" type="text" placeholder="Nombre y apellido" maxlength="40" autocomplete="name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Teléfono / WhatsApp</label>
+        <input id="player-phone-inp" class="form-input" type="tel" placeholder="Ej: 11 2345-6789" maxlength="25" autocomplete="tel">
+      </div>
+      <div class="form-group" style="margin-bottom:4px">
+        <label class="form-label">Email</label>
+        <input id="player-email-inp" class="form-input" type="email" placeholder="tucorreo@ejemplo.com" maxlength="80" autocomplete="email"
+          onkeydown="if(event.key==='Enter')loginPlayer()">
+      </div>
+      <p style="font-size:.68rem;color:var(--text2);margin-bottom:12px;line-height:1.4">
+        📞 Tus datos son solo para contactarte si ganás el premio. No se comparten con terceros.
+      </p>
     </div>
     <button class="btn btn-primary btn-full" onclick="loginPlayer()" style="font-size:.95rem;padding:12px">
       🚀 &nbsp;¡Quiero ganar los módulos!
@@ -766,10 +780,24 @@ function syncDraftRound(roundId) {
 // ════════════════════════════════════════════════════
 
 function loginPlayer() {
-  const name = document.getElementById('player-name-inp').value.trim();
-  if (!name) { showWelcomeError('Ingresá tu nombre para continuar.'); return; }
+  const name  = document.getElementById('player-name-inp').value.trim();
+  const phone = document.getElementById('player-phone-inp').value.trim();
+  const email = document.getElementById('player-email-inp').value.trim();
+  if (!name)  { showWelcomeError('Ingresá tu nombre para continuar.'); return; }
+  if (!phone) { showWelcomeError('Ingresá tu número de teléfono o WhatsApp.'); return; }
+  if (!email || !email.includes('@') || !email.includes('.')) {
+    showWelcomeError('Ingresá un email válido.'); return;
+  }
   let player = data.players.find(p => p.name.toLowerCase() === name.toLowerCase());
-  if (!player) { player = { id: crypto.randomUUID(), name }; data.players.push(player); saveData(); }
+  if (!player) {
+    player = { id: crypto.randomUUID(), name, phone, email };
+    data.players.push(player);
+  } else {
+    // actualizar datos de contacto si vuelve a ingresar
+    player.phone = phone;
+    player.email = email;
+  }
+  saveData();
   currentPlayer = player;
   isAdmin = false;
   draft = JSON.parse(JSON.stringify(data.predictions[player.id] || {}));
@@ -790,6 +818,8 @@ function logout() {
   document.getElementById('screen-app').classList.add('hidden');
   document.getElementById('screen-welcome').classList.remove('hidden');
   document.getElementById('player-name-inp').value = '';
+  document.getElementById('player-phone-inp').value = '';
+  document.getElementById('player-email-inp').value = '';
   document.getElementById('admin-pass-inp').value = '';
 }
 
@@ -1643,26 +1673,32 @@ function renderAdmin() {
       <textarea class="form-input" id="import-code-inp" rows="3" placeholder="Código base64..."></textarea></div>
       <button class="btn btn-accent" onclick="importPlayer()">📥 Importar</button>
     </div>
-    <div class="card"><div class="card-title">Jugadores (${data.players.length})</div>`;
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="card-title" style="margin-bottom:0">Leads registrados (${data.players.length})</div>
+        ${data.players.length > 0 ? `<button class="btn btn-sm btn-accent" onclick="exportLeads()">📋 Copiar leads</button>` : ''}
+      </div>`;
     if (data.players.length === 0) {
-      html += `<div class="empty-state"><div class="empty-icon">👥</div><p>No hay jugadores aún.</p></div>`;
+      html += `<div class="empty-state"><div class="empty-icon">👥</div><p>Nadie se registró todavía.</p></div>`;
     } else {
-      html += `<table class="lb-table"><thead><tr><th>Nombre</th><th>Clasificados</th><th>Partidos</th><th></th></tr></thead><tbody>`;
+      html += `<div style="overflow-x:auto"><table class="lb-table" style="min-width:480px">
+        <thead><tr><th>Nombre</th><th>Teléfono</th><th>Email</th><th>Prode</th><th></th></tr></thead><tbody>`;
       data.players.forEach(p => {
         const preds = data.predictions[p.id] || {};
         const q = (preds.qualifiers||[]).length;
         const matches = ROUNDS.reduce((s,r) => s + ((preds[r.id]||[]).filter(m=>m?.winner).length), 0);
         html += `<tr>
           <td class="player-cell">${escHtml(p.name)}</td>
-          <td class="text-sm text-2">${q}/16</td>
-          <td class="text-sm text-2">${matches}</td>
-          <td style="display:flex;gap:4px">
+          <td class="text-sm" style="color:var(--accent)">${escHtml(p.phone||'—')}</td>
+          <td class="text-sm text-2" style="word-break:break-all">${escHtml(p.email||'—')}</td>
+          <td class="text-sm text-2" style="white-space:nowrap">${q}/16 · ${matches}pts</td>
+          <td style="display:flex;gap:4px;flex-wrap:nowrap">
             <button class="btn btn-sm btn-secondary" onclick="exportPlayerModal('${p.id}')">📤</button>
             <button class="btn btn-sm btn-danger" onclick="removePlayer('${p.id}')">✕</button>
           </td>
         </tr>`;
       });
-      html += `</tbody></table>`;
+      html += `</tbody></table></div>`;
     }
     html += `</div>`;
   }
@@ -1808,6 +1844,23 @@ function importPlayer() {
     showToast(`✅ ${p.name} importado`);
     renderAdmin();
   } catch(e) { alert('Código inválido.'); }
+}
+
+function exportLeads() {
+  if (!data.players.length) return;
+  const lines = ['Nombre\tTeléfono\tEmail'];
+  data.players.forEach(p => {
+    lines.push(`${p.name}\t${p.phone||''}\t${p.email||''}`);
+  });
+  const text = lines.join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    showToast(`✅ ${data.players.length} leads copiados al portapapeles (pegá en Excel o WhatsApp)`);
+  }).catch(() => {
+    // fallback: show in modal
+    showModal(`<div class="modal-title">📋 Leads (${data.players.length})</div>
+      <p class="text-sm text-2" style="margin-bottom:8px">Seleccioná todo y copiá:</p>
+      <textarea class="form-input" rows="10" style="font-size:.72rem;font-family:monospace" readonly onclick="this.select()">${escHtml(text)}</textarea>`);
+  });
 }
 
 function removePlayer(id) {
