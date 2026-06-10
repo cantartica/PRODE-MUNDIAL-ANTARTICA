@@ -296,12 +296,83 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
 .bonus-chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
 .bonus-chip .pts { font-size: 1.3rem; font-weight: 800; color: var(--accent); }
 .bonus-chip .label { font-size: 0.7rem; color: var(--text2); margin-top: 2px; }
+/* ── TABLET ── */
+@media (max-width: 768px) {
+  main { padding: 12px 12px 100px; }
+  .qualifier-grid { grid-template-columns: repeat(auto-fill, minmax(110px,1fr)); gap: 6px; }
+  .adv-bonus-info { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ── MOBILE ── */
 @media (max-width: 520px) {
-  .b-team { font-size: 0.78rem; }
-  .score-inp { width: 38px; height: 38px; font-size: 1rem; }
-  .nav-btn { padding: 7px 8px; font-size: 0.74rem; }
-  .step-btn { font-size: 0.62rem; padding: 10px 2px; }
-  .qualifier-grid { grid-template-columns: repeat(auto-fill, minmax(100px,1fr)); }
+  /* header */
+  header { padding: 8px 12px; gap: 8px; }
+  header img { height: 24px !important; }
+  nav { gap: 1px; }
+  .nav-btn { padding: 6px 7px; font-size: 0.7rem; }
+
+  /* status bar */
+  #status-bar { padding: 5px 12px; font-size: 0.72rem; }
+
+  /* main */
+  main { padding: 10px 10px 100px; }
+  .card { padding: 13px 12px; }
+
+  /* step bar */
+  .step-bar { border-radius: 8px; }
+  .step-btn { font-size: 0.58rem; padding: 9px 2px; letter-spacing: 0; }
+  .step-num { font-size: 0.9rem; }
+
+  /* qualifier picker */
+  .qualifier-grid { grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+  .q-card { padding: 9px 6px; font-size: 0.77rem; }
+  .qualifier-counter { font-size: 0.82rem; }
+
+  /* bracket matches */
+  .b-team { font-size: 0.76rem; }
+  .b-match { padding: 10px; }
+  .score-inp { width: 38px; height: 38px; font-size: 0.95rem; }
+  .winner-btn { font-size: 0.72rem; padding: 7px 4px; }
+
+  /* match-teams-grid used in admin */
+  .match-teams-grid { grid-template-columns: 1fr 8px 1fr; }
+
+  /* admin tabs */
+  .tabs { overflow-x: auto; flex-wrap: nowrap; padding: 3px; gap: 2px; }
+  .tab { font-size: 0.68rem; padding: 7px 6px; white-space: nowrap; flex-shrink: 0; }
+
+  /* admin pool grid */
+  .pool-grid { grid-template-columns: 1fr 1fr; }
+  .qualifier-real-grid { grid-template-columns: 1fr 1fr; gap: 5px; }
+  .qualifier-real-btn { padding: 7px 5px; font-size: 0.72rem; }
+
+  /* leaderboard */
+  .lb-table th, .lb-table td { padding: 9px 8px; }
+  .lb-table th:nth-child(4), .lb-table td:nth-child(4) { display: none; } /* hide bar column */
+  .total-cell { font-size: 0.95rem; }
+
+  /* welcome card */
+  .welcome-card { padding: 28px 18px; }
+  .welcome-title { font-size: 1.7rem; }
+
+  /* bonus chips */
+  .adv-bonus-info { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .bonus-chip { padding: 8px 4px; }
+  .bonus-chip .pts { font-size: 1.1rem; }
+  .bonus-chip .label { font-size: 0.62rem; }
+
+  /* save bar */
+  #save-bar { padding: 8px 12px; padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
+  .save-progress { font-size: 0.72rem; }
+  .btn { font-size: 0.82rem; padding: 9px 14px; }
+  .btn-sm { padding: 6px 10px; font-size: 0.74rem; }
+
+  /* modal */
+  .modal { padding: 18px 16px; }
+  .modal-title { font-size: 1rem; }
+
+  /* alerts */
+  .alert { font-size: 0.78rem; padding: 9px 12px; }
 }
 </style>
 </head>
