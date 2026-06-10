@@ -137,6 +137,7 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
 }
 .q-card.result-correct { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(88,192,236,.3); }
 .q-card.result-wrong { opacity: 0.5; }
+.q-card.q-card-disabled { opacity: .35; cursor: not-allowed; }
 .q-card .flag { font-size: 1.4rem; display: block; margin-bottom: 4px; }
 
 /* ── BRACKET MATCH ── */
@@ -391,8 +392,41 @@ const FEEDS = {
   TP: [[0],[1]],  // loser SF[0] vs loser SF[1]
 };
 
-const POOL_SIZE = 32;
 const QUALIFIER_COUNT = 16;
+
+// 48 equipos · 12 grupos de 4 · formato oficial Mundial 2026
+// ⚠️ Admin: verificar grupos contra el sorteo oficial (5 dic 2024)
+function defaultGroups() {
+  return [
+    { name: 'A', teams: ['🇲🇽 México',       '🇵🇱 Polonia',         '🇪🇨 Ecuador',        '🇸🇳 Senegal']         },
+    { name: 'B', teams: ['🇺🇸 USA',           '🏴󠁧󠁢󠁥󠁮󠁧󠁿 Inglaterra',   '🇵🇦 Panamá',         '🇺🇾 Uruguay']         },
+    { name: 'C', teams: ['🇨🇦 Canadá',        '🇲🇦 Marruecos',       '🇨🇮 Costa de Marfil','🇺🇿 Uzbekistán']      },
+    { name: 'D', teams: ['🇫🇷 Francia',        '🇦🇷 Argentina',       '🇯🇵 Japón',          '🇸🇦 Arabia Saudita']  },
+    { name: 'E', teams: ['🇪🇸 España',         '🇧🇷 Brasil',          '🇰🇷 Corea del Sur',  '🇿🇦 Sudáfrica']       },
+    { name: 'F', teams: ['🇩🇪 Alemania',       '🇨🇴 Colombia',        '🇪🇬 Egipto',         '🇯🇴 Jordania']        },
+    { name: 'G', teams: ['🇵🇹 Portugal',       '🇷🇸 Serbia',          '🇮🇷 Irán',           '🇧🇴 Bolivia']         },
+    { name: 'H', teams: ['🇳🇱 Países Bajos',   '🇳🇬 Nigeria',         '🇮🇶 Irak',           '🇯🇲 Jamaica']         },
+    { name: 'I', teams: ['🇧🇪 Bélgica',        '🇨🇩 Rep. Congo',      '🇦🇺 Australia',      '🇻🇪 Venezuela']       },
+    { name: 'J', teams: ['🇮🇹 Italia',         '🇨🇲 Camerún',         '🇭🇳 Honduras',       '🇵🇾 Paraguay']        },
+    { name: 'K', teams: ['🇭🇷 Croacia',        '🇹🇷 Turquía',         '🇹🇳 Túnez',          '🇳🇿 Nueva Zelanda']   },
+    { name: 'L', teams: ['🇨🇭 Suiza',          '🇩🇰 Dinamarca',       '🇦🇹 Austria',        '🇷🇴 Rumanía']         },
+  ];
+}
+
+// Max equipos de un mismo grupo que pueden clasificar a Octavos:
+// 2 directos (1° y 2°) + hasta 1 mejor 3° = 3 máximo
+const MAX_PER_GROUP = 3;
+
+function allGroupTeams() {
+  return (data.groups || defaultGroups()).flatMap(g => g.teams);
+}
+function teamGroup(teamName) {
+  return (data.groups || defaultGroups()).find(g => g.teams.includes(teamName));
+}
+function groupPickCount(groupName, selected) {
+  const g = (data.groups || defaultGroups()).find(x => x.name === groupName);
+  return g ? g.teams.filter(t => selected.includes(t)).length : 0;
+}
 
 const STEPS = [
   { id: 'qualifiers', label: '16 Clasificados' },
@@ -413,7 +447,7 @@ function defaultData() {
       teams[`${r.id}_${i}`] = { home: '', away: '' };
   return {
     adminPassword: 'admin2026',
-    pool: Array(POOL_SIZE).fill(''),
+    groups: defaultGroups(),
     realQualifiers: [],           // actual 16 R16 teams (admin-set)
     teams,                        // actual match teams (admin-set)
     results: {},                  // actual match results: { R16_0: {home,away,winner} }
@@ -427,7 +461,16 @@ const STORAGE_KEY = 'prode_mundial_2026_v2';
 function loadData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) { const d = defaultData(); return Object.assign(d, JSON.parse(raw)); }
+    if (raw) {
+      const d = defaultData();
+      const saved = JSON.parse(raw);
+      const merged = Object.assign(d, saved);
+      // migrate: if old format had pool[], replace with default groups
+      if (!merged.groups || !Array.isArray(merged.groups) || merged.groups.length === 0) {
+        merged.groups = defaultGroups();
+      }
+      return merged;
+    }
   } catch(e) {}
   return defaultData();
 }
@@ -733,14 +776,14 @@ function isStepDone(stepIdx) {
 // ── STEP 1: QUALIFIER PICKS ──
 function renderStepQualifiers() {
   const selected = draft.qualifiers || [];
-  const pool = data.pool.filter(t => t.trim());
+  const groups = data.groups || defaultGroups();
   const realQ = data.realQualifiers || [];
   const resultsIn = realQ.length > 0;
 
   let html = `<div class="card">
     <div style="margin-bottom:12px">
       <div style="font-size:1rem;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Paso 1 — Elegí tus 16 clasificados a Octavos</div>
-      <div class="text-2 text-sm">Seleccioná exactamente 16 equipos que crees que llegan a los Octavos de Final.</div>
+      <div class="text-2 text-sm">Seleccioná 16 equipos que crees que llegan a Octavos. Máximo 3 por grupo.</div>
     </div>`;
 
   if (!resultsIn) {
@@ -752,27 +795,41 @@ function renderStepQualifiers() {
     html += `<div class="alert alert-success" style="margin-bottom:12px">Clasificados reales cargados · Tus puntos: <b>+${correct} pts</b></div>`;
   }
 
-  if (pool.length === 0) {
-    html += `<div class="empty-state"><div class="empty-icon">⚽</div><p>El administrador todavía no cargó los equipos del torneo.</p></div>`;
-  } else {
-    html += `<div class="qualifier-grid">`;
-    pool.forEach(team => {
+  groups.forEach(group => {
+    const pickedInGroup = groupPickCount(group.name, selected);
+    const groupFull = pickedInGroup >= MAX_PER_GROUP;
+
+    html += `<div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="background:linear-gradient(135deg,var(--grad-start),var(--grad-end));color:#fff;font-weight:800;font-size:.7rem;padding:2px 9px;border-radius:20px;letter-spacing:.06em">GRUPO ${escHtml(group.name)}</span>
+        <span style="font-size:.72rem;color:var(--text2)">${pickedInGroup > 0 ? `${pickedInGroup}/3 elegidos` : ''}</span>
+      </div>
+      <div class="qualifier-grid">`;
+
+    group.teams.forEach(team => {
       const isSel = selected.includes(team);
+      const isDisabledByGroup = !isSel && groupFull;
+      const isDisabled = resultsIn || isDisabledByGroup;
       let cls = 'q-card';
       if (resultsIn) {
         if (isSel && realQ.includes(team)) cls += ' result-correct selected';
         else if (isSel && !realQ.includes(team)) cls += ' result-wrong selected';
         else if (!isSel && realQ.includes(team)) cls += ' result-correct';
-      } else if (isSel) cls += ' selected';
-      const disabled = resultsIn ? 'pointer-events:none' : '';
-      html += `<div class="${cls}" style="${disabled}" onclick="toggleQualifier('${escJs(team)}')">${escHtml(team)}</div>`;
+        else if (isDisabledByGroup) cls += ' q-card-disabled';
+      } else if (isSel) {
+        cls += ' selected';
+      } else if (isDisabledByGroup) {
+        cls += ' q-card-disabled';
+      }
+      const style = isDisabled ? 'opacity:.45;pointer-events:none' : '';
+      html += `<div class="${cls}" style="${style}" onclick="toggleQualifier('${escJs(team)}')">${escHtml(team)}</div>`;
     });
-    html += `</div>`;
-  }
+
+    html += `</div></div>`;
+  });
 
   html += `</div>`;
 
-  // Bonus info
   html += `<div class="card">
     <div class="card-title">Sistema de puntos · Bonus por clasificación</div>
     <div class="adv-bonus-info">
@@ -796,6 +853,11 @@ function toggleQualifier(team) {
   } else {
     if (draft.qualifiers.length >= QUALIFIER_COUNT) {
       showToast('Ya elegiste 16 equipos. Deseleccioná uno antes.');
+      return;
+    }
+    const g = teamGroup(team);
+    if (g && groupPickCount(g.name, draft.qualifiers) >= MAX_PER_GROUP) {
+      showToast(`Máximo ${MAX_PER_GROUP} equipos del Grupo ${g.name}.`);
       return;
     }
     draft.qualifiers.push(team);
@@ -1141,7 +1203,7 @@ function switchAdminTab(t) { adminTab = t; renderAdmin(); }
 function renderAdmin() {
   const container = document.getElementById('admin-content');
   let html = `<div class="tabs">
-    <button class="tab ${adminTab==='equipos'?'active':''}" onclick="switchAdminTab('equipos')">⚽ Equipos (32)</button>
+    <button class="tab ${adminTab==='equipos'?'active':''}" onclick="switchAdminTab('equipos')">⚽ Equipos (48)</button>
     <button class="tab ${adminTab==='clasificados'?'active':''}" onclick="switchAdminTab('clasificados')">✅ Clasificados</button>
     <button class="tab ${adminTab==='resultados'?'active':''}" onclick="switchAdminTab('resultados')">📊 Resultados</button>
     <button class="tab ${adminTab==='jugadores'?'active':''}" onclick="switchAdminTab('jugadores')">👥 Jugadores</button>
@@ -1149,30 +1211,39 @@ function renderAdmin() {
   </div>`;
 
   if (adminTab === 'equipos') {
-    html += `<div class="alert alert-info">Ingresá los 32 equipos del torneo. Los jugadores elegirán sus 16 clasificados de esta lista.</div>
-    <div class="card"><div class="card-title">Pool de equipos (${data.pool.filter(t=>t.trim()).length} / 32)</div>
-    <div class="pool-grid">`;
-    for (let i = 0; i < POOL_SIZE; i++) {
-      html += `<div class="pool-inp-wrap">
-        <span class="pool-num">${i+1}</span>
-        <input class="pool-inp" type="text" value="${escHtml(data.pool[i]||'')}" placeholder="Equipo ${i+1}"
-          oninput="setPool(${i},this.value)" maxlength="25">
-      </div>`;
-    }
-    html += `</div></div>`;
+    const groups = data.groups || defaultGroups();
+    html += `<div class="alert alert-info">⚠️ Verificá que los grupos coincidan con el sorteo oficial. Podés editar nombre de equipo (incluye la bandera). Máx. 3 por grupo pueden clasificar.</div>`;
+    groups.forEach((g, gi) => {
+      html += `<div class="card" style="margin-bottom:10px">
+        <div class="card-title" style="margin-bottom:8px">Grupo ${escHtml(g.name)}</div>
+        <div class="pool-grid">`;
+      g.teams.forEach((team, ti) => {
+        html += `<div class="pool-inp-wrap">
+          <input class="pool-inp" type="text" value="${escHtml(team)}" placeholder="🏳 País"
+            oninput="setGroupTeam(${gi},${ti},this.value)" maxlength="30">
+        </div>`;
+      });
+      html += `</div></div>`;
+    });
   }
 
   else if (adminTab === 'clasificados') {
     const real = data.realQualifiers || [];
-    const pool = data.pool.filter(t=>t.trim());
-    html += `<div class="alert alert-warn">⚠️ Al confirmar los clasificados se calculan los +1 punto de todos los jugadores.</div>
-    <div class="card"><div class="card-title">¿Cuáles 16 equipos clasificaron a Octavos? (${real.length}/16)</div>
-    <div class="qualifier-real-grid">`;
-    pool.forEach(t => {
-      const sel = real.includes(t);
-      html += `<button class="qualifier-real-btn ${sel?'selected':''}" onclick="toggleRealQualifier('${escJs(t)}')">${escHtml(t)}</button>`;
+    const groups = data.groups || defaultGroups();
+    const allTeams = groups.flatMap(g => g.teams);
+    html += `<div class="alert alert-warn">⚠️ Al confirmar los clasificados se calculan los puntos de bonus de todos los jugadores.</div>
+    <div class="card"><div class="card-title">¿Cuáles 16 equipos clasificaron a Octavos? (${real.length}/16)</div>`;
+    groups.forEach(g => {
+      html += `<div style="margin-bottom:12px">
+        <div style="font-size:.7rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Grupo ${escHtml(g.name)}</div>
+        <div class="qualifier-real-grid">`;
+      g.teams.forEach(t => {
+        const sel = real.includes(t);
+        html += `<button class="qualifier-real-btn ${sel?'selected':''}" onclick="toggleRealQualifier('${escJs(t)}')">${escHtml(t)}</button>`;
+      });
+      html += `</div></div>`;
     });
-    html += `</div></div>`;
+    html += `</div>`;
   }
 
   else if (adminTab === 'resultados') {
@@ -1306,8 +1377,14 @@ function clearResult(key) {
 }
 
 let savePoolTimer = null;
+function setGroupTeam(gi, ti, val) {
+  if (!data.groups) data.groups = defaultGroups();
+  if (data.groups[gi]) data.groups[gi].teams[ti] = val;
+  saveData();
+}
 function setPool(i, val) {
-  data.pool[i] = val;
+  // legacy — no-op
+  saveData();
   clearTimeout(savePoolTimer);
   savePoolTimer = setTimeout(saveData, 600);
 }
