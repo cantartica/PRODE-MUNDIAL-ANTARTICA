@@ -29,15 +29,16 @@ body { background: var(--bg); color: var(--text); font-family: 'Poppins', system
 
 /* ── WELCOME ── */
 #screen-welcome {
-  min-height: 100vh; display: flex; align-items: center;
-  justify-content: center; padding: 16px;
+  min-height: 100vh; display: flex; align-items: flex-start;
+  justify-content: center; padding: 20px 16px 40px;
   background: radial-gradient(ellipse at top, #0a2a3d 0%, var(--bg) 65%);
+  overflow-y: auto;
 }
 .welcome-card {
   background: var(--surface); border: 1px solid rgba(88,192,236,.25);
-  border-radius: 20px; padding: 36px 28px; max-width: 400px; width: 100%;
-  text-align: center; box-shadow: 0 0 60px rgba(0,82,160,.3);
-  position: relative; overflow: hidden;
+  border-radius: 20px; padding: 32px 24px; max-width: 420px; width: 100%;
+  text-align: center; box-shadow: 0 0 80px rgba(0,82,160,.4);
+  position: relative; overflow: hidden; margin: auto 0;
 }
 .welcome-card::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
@@ -52,6 +53,36 @@ body { background: var(--bg); color: var(--text); font-family: 'Poppins', system
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
 .welcome-sub { color: var(--text2); font-size: 0.78rem; letter-spacing: .06em; text-transform: uppercase; margin: 6px 0 28px; }
+
+/* prize block */
+.prize-block {
+  background: linear-gradient(135deg, #0a1f30 0%, #0d2d44 100%);
+  border: 1px solid rgba(245,158,11,.35);
+  border-radius: 16px; padding: 20px 16px; margin: 20px 0;
+  position: relative; overflow: hidden;
+}
+.prize-block::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, #f59e0b, #fbbf24, #f59e0b);
+}
+.prize-label {
+  font-size: 0.68rem; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: #fbbf24; margin-bottom: 6px;
+}
+.prize-amount {
+  font-size: 3rem; font-weight: 900; line-height: 1;
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #fde68a 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  letter-spacing: -2px; margin-bottom: 4px;
+}
+.prize-unit {
+  font-size: 0.8rem; color: #fcd34d; font-weight: 600; opacity: .85;
+}
+@keyframes pulse-gold {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,.4); }
+  50% { box-shadow: 0 0 0 8px rgba(245,158,11,0); }
+}
+.prize-block { animation: pulse-gold 3s ease infinite; }
 .divider { text-align: center; color: var(--text2); font-size: 0.75rem; margin: 14px 0; position: relative; }
 .divider::before, .divider::after { content: ''; position: absolute; top: 50%; width: 40%; height: 1px; background: var(--border); }
 .divider::before { left: 0; } .divider::after { right: 0; }
@@ -383,23 +414,61 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
 ══════════════════════════════════════════════════ -->
 <div id="screen-welcome">
   <div class="welcome-card">
-    <img src="logo-secundaria.png" alt="Comercial Antartica" style="width:170px;margin-bottom:16px;display:block;margin-left:auto;margin-right:auto;mix-blend-mode:screen">
-    <h1 class="welcome-title">Prode <span>Mundial</span></h1>
-    <p style="background:linear-gradient(90deg,var(--grad-start),var(--grad-end));-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:700;font-size:1rem;margin-bottom:4px">USA · Canadá · México 2026</p>
-    <p class="welcome-sub">Fase Eliminatoria · Octavos a Final</p>
 
+    <img src="logo-secundaria.png" alt="Comercial Antartica"
+      style="width:150px;margin-bottom:20px;display:block;margin-left:auto;margin-right:auto;mix-blend-mode:screen">
+
+    <h1 class="welcome-title">Prode <span>Mundial</span></h1>
+    <p style="background:linear-gradient(90deg,var(--grad-start),var(--grad-end));-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:700;font-size:0.95rem;margin-bottom:20px">
+      USA · Canadá · México 2026
+    </p>
+
+    <!-- PRIZE -->
+    <div class="prize-block">
+      <div class="prize-label">🏆 &nbsp;Primer Premio</div>
+      <div class="prize-amount">$300.000</div>
+      <div class="prize-unit">en módulos de pantalla</div>
+    </div>
+
+    <!-- EMOTIONAL MESSAGE -->
+    <div style="text-align:left;margin:20px 0;display:flex;flex-direction:column;gap:12px">
+      <p style="font-size:0.92rem;font-weight:700;line-height:1.5;color:var(--text)">
+        El Mundial llegó. Y en Antartica lo vamos a vivir juntos. ⚽🔥
+      </p>
+      <p style="font-size:0.82rem;line-height:1.6;color:var(--text2)">
+        Predecí los clasificados, armá tu bracket y seguí cada partido. El que más acierte se lleva
+        <strong style="color:#fbbf24">$300.000 en módulos</strong> — sí, los mismos módulos que vendemos todos los días —
+        para hacer lo que quieras: venderlos, usarlos o presumirlos.
+      </p>
+      <p style="font-size:0.82rem;line-height:1.6;color:var(--text2)">
+        No hace falta ser Messi para ganar. Hace falta suerte, ojo y confiar en tu instinto mundialero. 🧠
+      </p>
+      <div style="background:rgba(88,192,236,.08);border:1px solid rgba(88,192,236,.2);border-radius:10px;padding:12px;font-size:0.78rem;color:var(--text2);line-height:1.5">
+        📋 &nbsp;<strong style="color:var(--text)">Cómo funciona:</strong> elegís 16 clasificados a Octavos, armás tu bracket y predecís resultados partido a partido. Más aciertos = más puntos = más cerca del premio.
+      </div>
+    </div>
+
+    <hr style="border:none;border-top:1px solid var(--border);margin:4px 0 20px">
+
+    <!-- LOGIN -->
     <div class="form-group">
       <label class="form-label">Tu nombre para el prode</label>
-      <input id="player-name-inp" class="form-input" type="text" placeholder="Ingresá tu nombre" maxlength="30" autocomplete="off">
+      <input id="player-name-inp" class="form-input" type="text" placeholder="Ingresá tu nombre" maxlength="30" autocomplete="off"
+        onkeydown="if(event.key==='Enter')loginPlayer()">
     </div>
-    <button class="btn btn-primary btn-full" onclick="loginPlayer()">🚀 Ingresar al Prode</button>
-    <div class="divider">o</div>
+    <button class="btn btn-primary btn-full" onclick="loginPlayer()" style="font-size:.95rem;padding:12px">
+      🚀 &nbsp;¡Quiero ganar los módulos!
+    </button>
+
+    <div class="divider">administrador</div>
     <div class="form-group">
       <label class="form-label">Contraseña de administrador</label>
-      <input id="admin-pass-inp" class="form-input" type="password" placeholder="Contraseña admin">
+      <input id="admin-pass-inp" class="form-input" type="password" placeholder="Contraseña admin"
+        onkeydown="if(event.key==='Enter')loginAdmin()">
     </div>
     <button class="btn btn-secondary btn-full" onclick="loginAdmin()">🔑 Ingresar como Admin</button>
-    <p id="welcome-error" class="hidden" style="color:var(--red);font-size:0.82rem;margin-top:12px;"></p>
+    <p id="welcome-error" class="hidden" style="color:var(--red);font-size:0.82rem;margin-top:12px;text-align:center"></p>
+
   </div>
 </div>
 
