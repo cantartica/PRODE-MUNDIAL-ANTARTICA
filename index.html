@@ -112,6 +112,29 @@ nav { display: flex; gap: 2px; }
   padding: 6px 16px; display: flex; align-items: center;
   justify-content: space-between; font-size: 0.78rem;
 }
+
+/* ── PRIZE BAR ── */
+#prize-bar {
+  background: linear-gradient(90deg, #0d1f2d 0%, #0f2a1e 50%, #0d1f2d 100%);
+  border-bottom: 1px solid rgba(245,158,11,.3);
+  padding: 6px 16px; display: flex; align-items: center;
+  justify-content: center; gap: 8px; font-size: 0.78rem;
+  background-size: 200% 100%;
+  animation: shimmer-bar 4s linear infinite;
+}
+@keyframes shimmer-bar {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.prize-bar-trophy { font-size: 0.9rem; }
+.prize-bar-text { color: #fcd34d; font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .06em; }
+.prize-bar-amount { color: #fbbf24; font-weight: 900; font-size: 0.92rem; letter-spacing: -.3px; }
+.prize-bar-unit { color: #a8c8d8; font-size: 0.72rem; }
+@media (max-width: 520px) {
+  #prize-bar { gap: 5px; padding: 5px 12px; }
+  .prize-bar-text { display: none; }
+  .prize-bar-unit { font-size: 0.68rem; }
+}
 .status-name { color: var(--accent); font-weight: 700; }
 .status-pts {
   background: linear-gradient(90deg,var(--grad-start),var(--grad-end));
@@ -489,6 +512,12 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
     <span>Jugando como: <span class="status-name" id="status-name-text"></span></span>
     <span class="status-pts" id="status-pts-text"></span>
     <button class="btn btn-sm btn-secondary" onclick="logout()">Salir</button>
+  </div>
+  <div id="prize-bar">
+    <span class="prize-bar-trophy">🏆</span>
+    <span class="prize-bar-text">Primer Premio</span>
+    <span class="prize-bar-amount">$300.000</span>
+    <span class="prize-bar-unit">en módulos de pantalla</span>
   </div>
   <main>
     <div id="page-predictions"><div id="predictions-content"></div></div>
