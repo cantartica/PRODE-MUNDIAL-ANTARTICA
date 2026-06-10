@@ -329,20 +329,7 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
 ═══════════════════════════════════════════════════════ -->
 <div id="screen-welcome">
   <div class="welcome-card">
-    <!-- logo Antartica en SVG inline (degradé institucional) -->
-    <svg viewBox="0 0 80 56" style="width:72px;margin-bottom:10px" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="ag" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="#0052A0"/>
-          <stop offset="100%" stop-color="#009EE2"/>
-        </linearGradient>
-      </defs>
-      <polygon points="40,4 72,52 8,52" fill="url(#ag)"/>
-      <polygon points="40,18 54,44 26,44" fill="#242727"/>
-      <polygon points="40,26 47,40 33,40" fill="url(#ag)" opacity=".7"/>
-      <rect x="34" y="46" width="12" height="3" rx="1.5" fill="#fff" opacity=".9"/>
-    </svg>
-    <p style="font-size:0.62rem;letter-spacing:.18em;text-transform:uppercase;color:var(--text2);margin-bottom:2px;font-weight:600">COMERCIAL ANTARTICA</p>
+    <img src="logo-secundaria.png" alt="Comercial Antartica" style="width:180px;margin-bottom:16px;display:block;margin-left:auto;margin-right:auto">
     <h1 class="welcome-title">Prode <span>Mundial</span></h1>
     <p style="background:linear-gradient(90deg,var(--grad-start),var(--grad-end));-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:700;font-size:1rem;margin-bottom:4px;">USA · Canadá · México 2026</p>
     <p class="welcome-sub">Fase Eliminatoria · Octavos a Final</p>
@@ -371,12 +358,7 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
 <div id="screen-app" class="hidden">
   <header>
     <div class="logo">
-      <svg viewBox="0 0 28 20" style="width:22px;vertical-align:middle;margin-right:6px" fill="none">
-        <defs><linearGradient id="hg" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#0052A0"/><stop offset="100%" stop-color="#009EE2"/></linearGradient></defs>
-        <polygon points="14,1 27,19 1,19" fill="url(#hg)"/>
-        <polygon points="14,8 20,16 8,16" fill="#203643"/>
-      </svg>
-      <span class="accent">PRODE</span> <span class="year">MUNDIAL '26</span>
+      <img src="logo-principal.png" alt="Comercial Antartica" style="height:32px;display:block">
     </div>
     <nav>
       <button class="nav-btn active" id="nav-predictions" onclick="showPage('predictions')">Mis predicciones</button>
