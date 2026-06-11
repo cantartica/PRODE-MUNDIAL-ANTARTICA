@@ -959,15 +959,12 @@ function renderRules() {
     <div class="card-title">Sistema de puntos</div>
     <div style="display:flex;flex-direction:column;gap:6px">
       ${[
-        ['+3','1° de grupo','Por cada primero de grupo acertado'],
-        ['+2','2° de grupo','Por cada segundo de grupo acertado'],
-        ['+1','Mejor tercero','Por cada tercero clasificado acertado (de los 8)'],
-        ['+2','Ronda de 32','Por cada ganador acertado'],
-        ['+3','Octavos','Por cada ganador acertado'],
-        ['+4','Cuartos','Por cada ganador acertado'],
-        ['+5','Semis','Por cada ganador acertado'],
-        ['+8','Campeón','Por acertar al campeón del mundo'],
-        ['+3','3er puesto','Por acertar al tercer puesto'],
+        ['+1','Equipo en Octavos','Por cada uno de los 16 equipos de Octavos acertados → máx 16 pts'],
+        ['+2','Equipo en Cuartos','Por cada uno de los 8 equipos de Cuartos acertados → máx 16 pts'],
+        ['+3','Equipo en Semis','Por cada uno de los 4 semifinalistas acertados → máx 12 pts'],
+        ['+5','Equipo en Final','Por cada uno de los 2 finalistas acertados → máx 10 pts'],
+        ['+10','Campeón','Por acertar al campeón del mundo'],
+        ['+5','3er puesto','Por acertar al tercer puesto'],
       ].map(([pts,title,desc]) => `
         <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;background:var(--surface2);border-radius:8px">
           <div style="font-size:1.2rem;font-weight:800;color:var(--accent);min-width:34px;text-align:center">${pts}</div>
@@ -983,8 +980,8 @@ function renderRules() {
     <div class="card-title">Tips</div>
     <div style="display:flex;flex-direction:column;gap:8px">
       ${[
-        ['🏆','Acertar al campeón vale 8 pts — ¡es la apuesta más importante!'],
-        ['🥉','No te olvides del 3er puesto (3 pts).'],
+        ['🏆','Acertar al campeón vale 10 pts — ¡es la apuesta más importante!'],
+        ['🥉','No te olvides del 3er puesto (5 pts).'],
         ['📲',`Invitá a un colega con tu link personal y ganás +${REFERRAL_BONUS} pts por cada uno que se registre.`],
         ['💾','Tu prode se guarda automáticamente en cada cambio.'],
       ].map(([icon,text]) => `
@@ -1006,21 +1003,11 @@ function playerStats(playerId) {
   const off  = data.official || {};
   let pts = 0;
 
-  // Fase de grupos: 1° = 3pts, 2° = 2pts
-  for (const grp of 'ABCDEFGHIJKL'.split('')) {
-    const pr = (psim.groupRanks||{})[grp] || {};
-    const or = (off.groupRanks||{})[grp]  || {};
-    if (pr[1] && pr[1] === or[1]) pts += 3;
-    if (pr[2] && pr[2] === or[2]) pts += 2;
-  }
-
-  // Mejores terceros: 1pt cada uno
-  for (const t of (psim.thirds||[])) {
-    if ((off.thirds||[]).includes(t)) pts += 1;
-  }
-
-  // Rondas eliminatorias
-  const rounds = [{k:'r32',p:2},{k:'r16',p:3},{k:'qf',p:4},{k:'sf',p:5}];
+  // Equipos en Octavos (ganadores de 32vos): 1pt c/u → máx 16
+  // Equipos en Cuartos (ganadores de 8vos):  2pts c/u → máx 16
+  // Equipos en Semis (ganadores de Cuartos): 3pts c/u → máx 12
+  // Equipos en Final (ganadores de Semis):   5pts c/u → máx 10
+  const rounds = [{k:'r32',p:1},{k:'r16',p:2},{k:'qf',p:3},{k:'sf',p:5}];
   for (const {k,p} of rounds) {
     const pr = psim[k]||{}, or = off[k]||{};
     for (const [idx,team] of Object.entries(or)) {
@@ -1028,9 +1015,9 @@ function playerStats(playerId) {
     }
   }
 
-  // Campeón y tercer puesto
-  if (psim.final && psim.final===off.final) pts += 8;
-  if (psim.thirdPlace && psim.thirdPlace===off.thirdPlace) pts += 3;
+  // Campeón: +10 · Tercer puesto: +5
+  if (psim.final && psim.final===off.final) pts += 10;
+  if (psim.thirdPlace && psim.thirdPlace===off.thirdPlace) pts += 5;
 
   // Bonus referidos
   const refCount = Object.values(data.referrals||{}).filter(rid=>rid===playerId).length;
