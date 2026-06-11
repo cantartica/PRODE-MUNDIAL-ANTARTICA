@@ -505,51 +505,82 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
       </div>
     </div>
 
-    <!-- LOGIN -->
-    <div style="background:rgba(88,192,236,.07);border:1px solid rgba(88,192,236,.2);border-radius:10px;padding:14px 14px 6px;margin-bottom:4px">
-      <div style="font-size:.72rem;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px">Registrá tus datos para jugar</div>
-      <div class="form-group">
-        <label class="form-label">Nombre completo</label>
-        <input id="player-name-inp" class="form-input" type="text" placeholder="Nombre y apellido" maxlength="40" autocomplete="name">
-      </div>
-      <div class="form-group">
-        <label class="form-label">WhatsApp <span style="color:#fbbf24;font-size:.72rem">— mandamos resultados y puntos por acá</span></label>
-        <input id="player-phone-inp" class="form-input" type="tel" placeholder="Ej: 11 2345-6789" maxlength="25" autocomplete="tel">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Email</label>
-        <input id="player-email-inp" class="form-input" type="email" placeholder="tucorreo@ejemplo.com" maxlength="80" autocomplete="email">
-      </div>
-      <div class="form-group">
-        <label class="form-label">¿Tenés local o sos técnico? <span style="color:var(--text2);font-size:.72rem">(opcional)</span></label>
-        <select id="player-profile-inp" class="form-input" style="cursor:pointer">
-          <option value="">Seleccioná una opción…</option>
-          <option value="tecnico">Técnico de celulares / reparador</option>
-          <option value="local">Tengo un local / negocio</option>
-          <option value="revendedor">Revendedor</option>
-          <option value="particular">Particular</option>
-        </select>
-      </div>
-      <div class="form-group" style="margin-bottom:10px">
-        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
-          <input id="player-pricelist-inp" type="checkbox" style="margin-top:3px;width:16px;height:16px;flex-shrink:0;accent-color:var(--accent)">
-          <span style="font-size:.8rem;color:var(--text2);line-height:1.4">
-            Quiero recibir la <strong style="color:var(--text)">lista de precios de módulos</strong> de Comercial Antartica
-          </span>
-        </label>
-      </div>
-      <p style="font-size:.68rem;color:var(--text2);margin-bottom:12px;line-height:1.4">
-        📞 Tus datos son solo para contactarte. No se comparten con terceros.
-      </p>
+    <!-- AUTH TABS -->
+    <div style="display:flex;background:var(--surface2);border-radius:10px;padding:3px;margin-bottom:12px">
+      <button id="tab-login-btn" onclick="switchAuthTab('login')"
+        style="flex:1;padding:9px;border:none;border-radius:8px;background:linear-gradient(90deg,var(--grad-start),var(--grad-end));color:#fff;font-weight:700;font-size:.82rem;cursor:pointer;font-family:'Poppins',sans-serif">
+        Ya tengo cuenta
+      </button>
+      <button id="tab-register-btn" onclick="switchAuthTab('register')"
+        style="flex:1;padding:9px;border:none;border-radius:8px;background:none;color:var(--text2);font-weight:600;font-size:.82rem;cursor:pointer;font-family:'Poppins',sans-serif">
+        Registrarme
+      </button>
     </div>
-    <button class="btn btn-primary btn-full" onclick="loginPlayer()" style="font-size:.95rem;padding:12px">
-      🚀 &nbsp;¡Quiero ganar los módulos!
-    </button>
 
-    <!-- INVITE -->
-    <button class="btn btn-secondary btn-full" onclick="shareInvite()" style="margin-top:10px;font-size:.85rem">
-      📲 &nbsp;Invitá a un colega y sumá puntos extra
-    </button>
+    <!-- PANEL: LOGIN -->
+    <div id="panel-login">
+      <div style="background:rgba(88,192,236,.07);border:1px solid rgba(88,192,236,.2);border-radius:10px;padding:14px 14px 6px;margin-bottom:4px">
+        <div style="font-size:.72rem;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px">Ingresá con tus datos</div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input id="login-email-inp" class="form-input" type="email" placeholder="tucorreo@ejemplo.com" maxlength="80" autocomplete="email">
+        </div>
+        <div class="form-group" style="margin-bottom:8px">
+          <label class="form-label">WhatsApp <span style="color:var(--text2);font-size:.72rem">(el que registraste)</span></label>
+          <input id="login-phone-inp" class="form-input" type="tel" placeholder="Ej: 11 2345-6789" maxlength="25" autocomplete="tel"
+            onkeydown="if(event.key==='Enter')loginExisting()">
+        </div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="loginExisting()" style="font-size:.95rem;padding:12px;margin-bottom:10px">
+        ▶ &nbsp;Ingresar
+      </button>
+    </div>
+
+    <!-- PANEL: REGISTER -->
+    <div id="panel-register" class="hidden">
+      <div style="background:rgba(88,192,236,.07);border:1px solid rgba(88,192,236,.2);border-radius:10px;padding:14px 14px 6px;margin-bottom:4px">
+        <div style="font-size:.72rem;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px">Registrá tus datos para jugar</div>
+        <div class="form-group">
+          <label class="form-label">Nombre completo</label>
+          <input id="player-name-inp" class="form-input" type="text" placeholder="Nombre y apellido" maxlength="40" autocomplete="name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">WhatsApp <span style="color:#fbbf24;font-size:.72rem">— mandamos resultados y puntos por acá</span></label>
+          <input id="player-phone-inp" class="form-input" type="tel" placeholder="Ej: 11 2345-6789" maxlength="25" autocomplete="tel">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input id="player-email-inp" class="form-input" type="email" placeholder="tucorreo@ejemplo.com" maxlength="80" autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label class="form-label">¿Tenés local o sos técnico? <span style="color:var(--text2);font-size:.72rem">(opcional)</span></label>
+          <select id="player-profile-inp" class="form-input" style="cursor:pointer">
+            <option value="">Seleccioná una opción…</option>
+            <option value="tecnico">Técnico de celulares / reparador</option>
+            <option value="local">Tengo un local / negocio</option>
+            <option value="revendedor">Revendedor</option>
+            <option value="particular">Particular</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:10px">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+            <input id="player-pricelist-inp" type="checkbox" style="margin-top:3px;width:16px;height:16px;flex-shrink:0;accent-color:var(--accent)">
+            <span style="font-size:.8rem;color:var(--text2);line-height:1.4">
+              Quiero recibir la <strong style="color:var(--text)">lista de precios de módulos</strong> de Comercial Antartica
+            </span>
+          </label>
+        </div>
+        <p style="font-size:.68rem;color:var(--text2);margin-bottom:12px;line-height:1.4">
+          📞 Tus datos son solo para contactarte. No se comparten con terceros.
+        </p>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="loginPlayer()" style="font-size:.95rem;padding:12px">
+        🚀 &nbsp;¡Quiero ganar los módulos!
+      </button>
+      <button class="btn btn-secondary btn-full" onclick="shareInvite()" style="margin-top:10px;font-size:.85rem">
+        📲 &nbsp;Invitá a un colega y sumá puntos extra
+      </button>
+    </div>
 
     <div class="divider">administrador</div>
     <div class="form-group">
@@ -844,6 +875,34 @@ function syncDraftRound(roundId) {
 // AUTH
 // ════════════════════════════════════════════════════
 
+function switchAuthTab(tab) {
+  const isLogin = tab === 'login';
+  document.getElementById('panel-login').classList.toggle('hidden', !isLogin);
+  document.getElementById('panel-register').classList.toggle('hidden', isLogin);
+  const loginBtn = document.getElementById('tab-login-btn');
+  const regBtn = document.getElementById('tab-register-btn');
+  const active = 'background:linear-gradient(90deg,var(--grad-start),var(--grad-end));color:#fff;font-weight:700';
+  const inactive = 'background:none;color:var(--text2);font-weight:600';
+  loginBtn.style.cssText = loginBtn.style.cssText.replace(/background[^;]+;|color[^;]+;|font-weight[^;]+;/g,'') + (isLogin ? active : inactive);
+  regBtn.style.cssText = regBtn.style.cssText.replace(/background[^;]+;|color[^;]+;|font-weight[^;]+;/g,'') + (isLogin ? inactive : active);
+}
+
+function loginExisting() {
+  const email = document.getElementById('login-email-inp').value.trim().toLowerCase();
+  const phone = document.getElementById('login-phone-inp').value.trim();
+  if (!email) { showWelcomeError('Ingresá tu email.'); return; }
+  if (!phone) { showWelcomeError('Ingresá tu WhatsApp.'); return; }
+  const player = data.players.find(p =>
+    (p.email || '').toLowerCase() === email && p.phone === phone
+  );
+  if (!player) { showWelcomeError('Email o WhatsApp incorrecto. ¿Todavía no te registraste?'); return; }
+  currentPlayer = player;
+  isAdmin = false;
+  draft = JSON.parse(JSON.stringify(data.predictions[player.id] || {}));
+  if (!draft.qualifiers) draft.qualifiers = [];
+  enterApp();
+}
+
 function loginPlayer() {
   const name      = document.getElementById('player-name-inp').value.trim();
   const phone     = document.getElementById('player-phone-inp').value.trim();
@@ -900,12 +959,15 @@ function logout() {
   currentPlayer = null; isAdmin = false; draft = {};
   document.getElementById('screen-app').classList.add('hidden');
   document.getElementById('screen-welcome').classList.remove('hidden');
+  document.getElementById('login-email-inp').value = '';
+  document.getElementById('login-phone-inp').value = '';
   document.getElementById('player-name-inp').value = '';
   document.getElementById('player-phone-inp').value = '';
   document.getElementById('player-email-inp').value = '';
   document.getElementById('player-profile-inp').value = '';
   document.getElementById('player-pricelist-inp').checked = false;
   document.getElementById('admin-pass-inp').value = '';
+  switchAuthTab('login');
 }
 
 function showWelcomeError(msg) {
@@ -1391,10 +1453,9 @@ function renderStepRound(roundId, isR16 = false) {
     // R16: team selectors from qualifier picks
     if (isR16) {
       const picks = draft.qualifiers || [];
-      const usedHome = rd.map((x,j) => j!==i ? x?.home : null).filter(Boolean);
-      const usedAway = rd.map((x,j) => j!==i ? x?.away : null).filter(Boolean);
-      const freeForHome = picks.filter(t => !usedHome.includes(t) && t !== m.away);
-      const freeForAway = picks.filter(t => !usedAway.includes(t) && t !== m.home);
+      const usedElsewhere = rd.flatMap((x,j) => j!==i ? [x?.home, x?.away] : []).filter(Boolean);
+      const freeForHome = picks.filter(t => !usedElsewhere.includes(t) && t !== m.away);
+      const freeForAway = picks.filter(t => !usedElsewhere.includes(t) && t !== m.home);
 
       if (hasResult) {
         html += `<div class="b-match-row">
@@ -1410,12 +1471,14 @@ function renderStepRound(roundId, isR16 = false) {
         html += `<div class="match-teams-grid">
           <select class="team-select" onchange="setR16Team(${i},'home',this.value)" ${disabled}>
             <option value="">— Local —</option>
-            ${picks.map(t=>`<option value="${escHtml(t)}" ${m.home===t?'selected':''}>${escHtml(t)}</option>`).join('')}
+            ${m.home ? `<option value="${escHtml(m.home)}" selected>${escHtml(m.home)}</option>` : ''}
+            ${freeForHome.filter(t=>t!==m.home).map(t=>`<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('')}
           </select>
           <div class="vs">vs</div>
           <select class="team-select" onchange="setR16Team(${i},'away',this.value)" ${disabled}>
             <option value="">— Visitante —</option>
-            ${picks.map(t=>`<option value="${escHtml(t)}" ${m.away===t?'selected':''}>${escHtml(t)}</option>`).join('')}
+            ${m.away ? `<option value="${escHtml(m.away)}" selected>${escHtml(m.away)}</option>` : ''}
+            ${freeForAway.filter(t=>t!==m.away).map(t=>`<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('')}
           </select>
         </div>
         <div class="b-match-row">
