@@ -1644,19 +1644,25 @@ function simGetThirdGroup(team) {
 // Asigna los 8 terceros a sus slots del bracket según reglas FIFA
 function simGetThirdAssignments() {
   const slotIds = Object.keys(SIM_THIRD_SLOTS).map(Number);
-  const available = [...sim.thirds];
   const result = {};
-  // Asignar el slot más restringido primero (constraint propagation)
-  slotIds.sort((a, b) => {
-    const ca = available.filter(t => SIM_THIRD_SLOTS[a].includes(simGetThirdGroup(t))).length;
-    const cb = available.filter(t => SIM_THIRD_SLOTS[b].includes(simGetThirdGroup(t))).length;
-    return ca - cb;
-  });
-  for (const sid of slotIds) {
-    const idx = available.findIndex(t => SIM_THIRD_SLOTS[sid].includes(simGetThirdGroup(t)));
-    if (idx >= 0) { result[sid] = available[idx]; available.splice(idx, 1); }
-    else result[sid] = '';
+  function backtrack(slots, avail) {
+    if (slots.length === 0) return true;
+    const sorted = [...slots].sort((a, b) => {
+      const ca = avail.filter(t => SIM_THIRD_SLOTS[a].includes(simGetThirdGroup(t))).length;
+      const cb = avail.filter(t => SIM_THIRD_SLOTS[b].includes(simGetThirdGroup(t))).length;
+      return ca - cb;
+    });
+    const sid = sorted[0];
+    const remaining = slots.filter(s => s !== sid);
+    const candidates = avail.filter(t => SIM_THIRD_SLOTS[sid].includes(simGetThirdGroup(t)));
+    for (const team of candidates) {
+      result[sid] = team;
+      if (backtrack(remaining, avail.filter(t => t !== team))) return true;
+    }
+    result[sid] = '';
+    return false;
   }
+  backtrack(slotIds, [...sim.thirds]);
   return result;
 }
 
