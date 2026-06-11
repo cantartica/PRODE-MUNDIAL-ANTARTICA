@@ -612,7 +612,6 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
       <button class="nav-btn active" id="nav-predictions" onclick="showPage('predictions')">⚽ Prode</button>
       <button class="nav-btn" id="nav-leaderboard" onclick="showPage('leaderboard')">📊 Tabla</button>
       <button class="nav-btn" id="nav-rules" onclick="showPage('rules')">📖 Reglas</button>
-      <button class="nav-btn" id="nav-simulate" onclick="showPage('simulate')">🔮 Simular</button>
       <button class="nav-btn hidden" id="nav-admin" onclick="showPage('admin')">⚙️ Admin</button>
     </nav>
   </header>
@@ -632,10 +631,8 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
     <div id="page-leaderboard" class="hidden"><div id="leaderboard-content"></div></div>
     <div id="page-rules" class="hidden"><div id="rules-content"></div></div>
     <div id="page-admin" class="hidden"><div id="admin-content"></div></div>
-    <div id="page-simulate" class="hidden"><div id="simulate-content"></div></div>
   </main>
   <div id="save-bar">
-    <span class="save-progress" id="save-progress-text"></span>
     <button class="btn btn-secondary btn-sm" onclick="shareInvite()" title="Invitá a un colega">📲</button>
     <span id="autosave-indicator" style="font-size:.72rem;color:var(--text2);display:none">✓ Guardado</span>
   </div>
@@ -651,32 +648,6 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
 // CONSTANTS
 // ════════════════════════════════════════════════════
 
-// Rounds for bracket prediction (NO R32)
-const ROUNDS = [
-  { id: 'R16', name: 'Octavos de Final',  count: 8 },
-  { id: 'QF',  name: 'Cuartos de Final',  count: 4 },
-  { id: 'SF',  name: 'Semifinales',       count: 2 },
-  { id: 'TP',  name: '3er Puesto',        count: 1 },
-  { id: 'F',   name: 'Final',             count: 1 },
-];
-
-// Advancement bonus per round (per winning team)
-const ADV_BONUS = { R16: 2, QF: 3, SF: 4, F: 10, TP: 0 };
-
-// Bracket progression: for each match in next round, which two matches feed it
-// QF[i] = [R16 match a, R16 match b] → winner(a) vs winner(b)
-const FEEDS = {
-  QF: [[0,1],[2,3],[4,5],[6,7]],
-  SF: [[0,1],[2,3]],
-  F:  [[0],[1]],  // winner SF[0] vs winner SF[1]
-  TP: [[0],[1]],  // loser SF[0] vs loser SF[1]
-};
-
-const QUALIFIER_COUNT = 16;
-
-// Fecha de cierre de predicciones: 4 de julio 2026, medianoche hora Argentina (UTC-3)
-const LOCK_DATE = new Date('2026-07-04T00:00:00-03:00');
-function isPredictionLocked() { return !isAdmin && new Date() >= LOCK_DATE; }
 
 // 48 equipos · 12 grupos de 4 · formato oficial Mundial 2026
 // ⚠️ Admin: verificar grupos contra el sorteo oficial (5 dic 2024)
@@ -762,32 +733,18 @@ function flagImg(code, h = 16) {
   return `<img src="https://flagcdn.com/w40/${code}.png" loading="lazy" style="height:${h}px;border-radius:2px;vertical-align:middle;margin-right:5px;flex-shrink:0">`;
 }
 
-const STEPS = [
-  { id: 'qualifiers', label: '16 Clasificados' },
-  { id: 'R16',        label: 'Octavos' },
-  { id: 'QF',         label: 'Cuartos' },
-  { id: 'SF',         label: 'Semis' },
-  { id: 'final',      label: 'Final' },
-];
-
 // ════════════════════════════════════════════════════
 // DATA MODEL
 // ════════════════════════════════════════════════════
 
 function defaultData() {
-  const teams = {};
-  for (const r of ROUNDS)
-    for (let i = 0; i < r.count; i++)
-      teams[`${r.id}_${i}`] = { home: '', away: '' };
   return {
     adminPassword: 'admin2026',
     groups: defaultGroups(),
-    realQualifiers: [],
-    teams,
-    results: {},
     players: [],
-    predictions: {},
-    referrals: {},   // { referredPlayerId: referrerId }
+    predictions: {},   // { [playerId]: { sim: {...} } }
+    referrals: {},
+    official: null,    // sim state oficial, lo carga el admin
   };
 }
 
@@ -830,71 +787,12 @@ let data = loadLocalData(); // populated async on init below
 let currentPlayer = null;
 let isAdmin = false;
 let currentPage = 'predictions';
-let currentStep = 0;
-let draft = {};
 
 // Capture referral code from URL on load
 const REFERRAL_PARAM = new URLSearchParams(window.location.search).get('ref') || '';
 if (REFERRAL_PARAM) sessionStorage.setItem('pending_ref', REFERRAL_PARAM);
 
 const REFERRAL_BONUS = 2; // pts per referred player who registered
-
-// ════════════════════════════════════════════════════
-// PREDICTION HELPERS
-// ════════════════════════════════════════════════════
-
-// Get winner team name from a match in player's draft
-function draftWinner(roundId, matchIdx) {
-  const m = (draft[roundId] || [])[matchIdx];
-  if (!m || !m.winner) return null;
-  return m.winner === 'home' ? m.home : m.away;
-}
-
-// Get loser team name from a match in player's draft
-function draftLoser(roundId, matchIdx) {
-  const m = (draft[roundId] || [])[matchIdx];
-  if (!m || !m.winner) return null;
-  return m.winner === 'home' ? m.away : m.home;
-}
-
-// Auto-derive QF/SF/F/TP teams from player's draft bracket
-function derivedTeam(roundId, matchIdx, side) {
-  if (roundId === 'R16') {
-    return (draft.qualifiers || [])[matchIdx * 2 + (side === 'home' ? 0 : 1)] || '';
-  }
-  if (roundId === 'QF') {
-    const feeds = FEEDS.QF[matchIdx];
-    return draftWinner('R16', feeds[side === 'home' ? 0 : 1]) || '';
-  }
-  if (roundId === 'SF') {
-    const feeds = FEEDS.SF[matchIdx];
-    return draftWinner('QF', feeds[side === 'home' ? 0 : 1]) || '';
-  }
-  if (roundId === 'F') {
-    return draftWinner('SF', side === 'home' ? 0 : 1) || '';
-  }
-  if (roundId === 'TP') {
-    return draftLoser('SF', side === 'home' ? 0 : 1) || '';
-  }
-  return '';
-}
-
-// Initialize or sync a round's matches with derived teams
-function syncDraftRound(roundId) {
-  const r = ROUNDS.find(x => x.id === roundId);
-  if (!r) return;
-  if (!draft[roundId]) draft[roundId] = Array(r.count).fill(null).map(() => ({}));
-  for (let i = 0; i < r.count; i++) {
-    const m = draft[roundId][i] || {};
-    if (roundId !== 'R16') {
-      m.home = derivedTeam(roundId, i, 'home');
-      m.away = derivedTeam(roundId, i, 'away');
-      // clear winner if teams changed
-      if (!m.home || !m.away) { m.winner = null; m.homeScore = ''; m.awayScore = ''; }
-    }
-    draft[roundId][i] = m;
-  }
-}
 
 // ════════════════════════════════════════════════════
 // AUTH
@@ -923,8 +821,6 @@ function loginExisting() {
   if (!player) { showWelcomeError('Email o WhatsApp incorrecto. ¿Todavía no te registraste?'); return; }
   currentPlayer = player;
   isAdmin = false;
-  draft = JSON.parse(JSON.stringify(data.predictions[player.id] || {}));
-  if (!draft.qualifiers) draft.qualifiers = [];
   enterApp();
 }
 
@@ -967,8 +863,6 @@ function loginPlayer() {
   saveData();
   currentPlayer = player;
   isAdmin = false;
-  draft = JSON.parse(JSON.stringify(data.predictions[player.id] || {}));
-  if (!draft.qualifiers) draft.qualifiers = [];
   enterApp();
 }
 
@@ -976,12 +870,12 @@ function loginAdmin() {
   const pass = document.getElementById('admin-pass-inp').value;
   if (pass !== data.adminPassword) { showWelcomeError('Contraseña incorrecta.'); return; }
   currentPlayer = { id: '__admin__', name: 'Administrador' };
-  isAdmin = true; draft = {};
+  isAdmin = true;
   enterApp();
 }
 
 function logout() {
-  currentPlayer = null; isAdmin = false; draft = {};
+  currentPlayer = null; isAdmin = false;
   document.getElementById('screen-app').classList.add('hidden');
   document.getElementById('screen-welcome').classList.remove('hidden');
   document.getElementById('login-email-inp').value = '';
@@ -1006,7 +900,14 @@ function enterApp() {
   document.getElementById('screen-app').classList.remove('hidden');
   document.getElementById('status-name-text').textContent = currentPlayer.name;
   document.getElementById('nav-admin').classList.toggle('hidden', !isAdmin);
-  document.getElementById('save-bar').classList.toggle('hidden', isAdmin);
+  document.getElementById('save-bar').classList.add('hidden');
+  // Cargar sim del jugador desde Firebase data
+  const saved = (data.predictions[currentPlayer?.id] || {}).sim;
+  if (saved) {
+    sim = { step:'groups', groupRanks:{}, thirds:[], r32:{}, r16:{}, qf:{}, sf:{}, final:null, thirdPlace:null, ...saved };
+  } else {
+    sim = { step:'groups', groupRanks:{}, thirds:[], r32:{}, r16:{}, qf:{}, sf:{}, final:null, thirdPlace:null };
+  }
   showPage(isAdmin ? 'admin' : 'predictions');
 }
 
@@ -1016,34 +917,32 @@ function enterApp() {
 
 function showPage(page) {
   currentPage = page;
-  ['predictions','leaderboard','rules','admin','simulate'].forEach(p => {
+  ['predictions','leaderboard','rules','admin'].forEach(p => {
     document.getElementById(`page-${p}`).classList.toggle('hidden', p !== page);
     const btn = document.getElementById(`nav-${p}`);
     if (btn) btn.classList.toggle('active', p === page);
   });
-  document.getElementById('save-bar').classList.toggle('hidden', page !== 'predictions' || isAdmin);
-  if (page === 'predictions') renderPredictions();
+  if (page === 'predictions') renderSimulate();
   else if (page === 'leaderboard') renderLeaderboard();
   else if (page === 'rules') renderRules();
   else if (page === 'admin') renderAdmin();
-  else if (page === 'simulate') renderSimulate();
 }
 
 function renderRules() {
   document.getElementById('rules-content').innerHTML = `
   <div class="card" style="border-top:3px solid var(--accent);margin-bottom:12px">
     <div style="font-size:1.1rem;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">¿Cómo funciona el Prode?</div>
-    <div class="text-sm text-2">Predecís el camino de los equipos desde Octavos hasta la Final. Cuanto más acertás, más puntos sumás.</div>
+    <div class="text-sm text-2">Predecís el camino de los equipos desde la fase de grupos hasta la Final. Cuanto más acertás, más puntos sumás.</div>
   </div>
 
   <div class="card">
-    <div class="card-title">Los 5 pasos</div>
+    <div class="card-title">Los pasos del prode</div>
     <div style="display:flex;flex-direction:column;gap:10px">
       ${[
-        ['1','Clasificados a Octavos','Elegís 16 equipos que creés que pasan la fase de grupos. Sumás 1 punto por cada acierto.'],
-        ['2','Bracket de Octavos','Asignás esos 16 equipos a los 8 partidos de Octavos y predecís el resultado y ganador de cada uno.'],
-        ['3','Cuartos de Final','Los ganadores que elegiste en Octavos avanzan automáticamente. Predecís resultados de Cuartos.'],
-        ['4','Semifinales','Igual que Cuartos: los ganadores de tu bracket avanzan. Predecís Semis.'],
+        ['1','Fase de Grupos','Asignás 1°, 2° y 3° en cada uno de los 12 grupos. El 4° queda eliminado.'],
+        ['2','Mejores Terceros','De los 12 terceros, elegís los 8 que clasifican a la Ronda de 32.'],
+        ['3','Ronda de 32','Los 32 clasificados juegan. Predecís el ganador de cada partido.'],
+        ['4','Octavos, Cuartos y Semis','Los ganadores avanzan automáticamente. Predecís ganadores de cada ronda.'],
         ['5','Final y 3er puesto','Completás los dos últimos partidos: la Final y el partido por el 3er puesto.'],
       ].map(([n,title,desc]) => `
         <div style="display:flex;gap:12px;align-items:flex-start">
@@ -1057,75 +956,26 @@ function renderRules() {
   </div>
 
   <div class="card">
-    <div class="card-title">Puntos por partido</div>
-    <div style="display:flex;flex-direction:column;gap:8px">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;background:var(--surface2);border-radius:8px">
-        <div>
-          <div style="font-weight:700;font-size:.88rem">Ganador correcto</div>
-          <div class="text-sm text-2">Acertás qué equipo gana el partido</div>
-        </div>
-        <div style="font-size:1.4rem;font-weight:800;color:var(--accent);min-width:48px;text-align:right">+2</div>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;background:var(--surface2);border-radius:8px">
-        <div>
-          <div style="font-weight:700;font-size:.88rem">Resultado exacto</div>
-          <div class="text-sm text-2">Acertás el marcador exacto (ej: 2-1)</div>
-        </div>
-        <div style="font-size:1.4rem;font-weight:800;color:var(--accent);min-width:48px;text-align:right">+1</div>
-      </div>
-      <div style="padding:10px;background:rgba(88,192,236,.06);border:1px solid var(--border);border-radius:8px">
-        <div class="text-sm text-2">El resultado exacto es <b style="color:var(--text)">adicional</b> al punto por ganador. Máximo <b style="color:var(--accent)">+3 pts</b> por partido.</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">Bonus por clasificación</div>
+    <div class="card-title">Sistema de puntos</div>
     <div style="display:flex;flex-direction:column;gap:6px">
       ${[
-        ['+1','Por cada clasificado a Octavos','R16','Si el equipo llega a jugar Octavos'],
-        ['+2','Por cada clasificado a Cuartos','QF','Si el equipo que pusiste en tu bracket avanza a QF'],
-        ['+3','Por cada clasificado a Semifinales','SF','Si el equipo avanza a Semis'],
-        ['+4','Por cada finalista','F','Si el equipo llega a la Final'],
-        ['+10','Campeón del mundo','🏆','Si acertás al campeón'],
-      ].map(([pts,title,badge,desc]) => `
-        <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:8px">
-          <div style="font-size:1.3rem;font-weight:800;color:var(--accent);min-width:36px;text-align:center">${pts}</div>
+        ['+3','1° de grupo','Por cada primero de grupo acertado'],
+        ['+2','2° de grupo','Por cada segundo de grupo acertado'],
+        ['+1','Mejor tercero','Por cada tercero clasificado acertado (de los 8)'],
+        ['+2','Ronda de 32','Por cada ganador acertado'],
+        ['+3','Octavos','Por cada ganador acertado'],
+        ['+4','Cuartos','Por cada ganador acertado'],
+        ['+5','Semis','Por cada ganador acertado'],
+        ['+8','Campeón','Por acertar al campeón del mundo'],
+        ['+3','3er puesto','Por acertar al tercer puesto'],
+      ].map(([pts,title,desc]) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;background:var(--surface2);border-radius:8px">
+          <div style="font-size:1.2rem;font-weight:800;color:var(--accent);min-width:34px;text-align:center">${pts}</div>
           <div style="flex:1">
             <div style="font-weight:700;font-size:.85rem">${title}</div>
             <div class="text-sm text-2">${desc}</div>
           </div>
-          <div style="font-size:.65rem;font-weight:700;color:var(--accent2);background:rgba(88,192,236,.1);border:1px solid rgba(88,192,236,.2);padding:2px 7px;border-radius:99px;white-space:nowrap">${badge}</div>
         </div>`).join('')}
-    </div>
-    <div style="margin-top:10px;padding:10px;background:rgba(88,192,236,.06);border:1px solid var(--border);border-radius:8px" class="text-sm text-2">
-      Los puntos de bonus son <b style="color:var(--text)">adicionales</b> a los puntos de los partidos. Un equipo puede darte hasta <b style="color:var(--accent)">+17 pts</b> si llegás al resultado exacto en la Final y acertás al campeón.
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">Ejemplo de puntaje</div>
-    <div style="background:var(--surface2);border-radius:8px;padding:12px;font-size:.83rem">
-      <div style="margin-bottom:8px;font-weight:700">Argentina campeón, ganando la final 2-1</div>
-      <div style="display:flex;flex-direction:column;gap:5px">
-        ${[
-          ['Pusiste a Argentina en tus clasificados a Octavos','✓','+ 1'],
-          ['Argentina pasó a Cuartos (en tu bracket)','✓','+ 2'],
-          ['Argentina pasó a Semis (en tu bracket)','✓','+ 3'],
-          ['Argentina llegó a la Final (en tu bracket)','✓','+ 4'],
-          ['Elegiste Argentina como campeón','✓','+ 10'],
-          ['Predijiste que gana la Final','✓','+ 2'],
-          ['Predijiste el resultado exacto 2-1','✓','+ 1'],
-        ].map(([label, check, pts]) => `
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-            <div style="color:var(--text2)">${check} ${label}</div>
-            <div style="font-weight:700;color:var(--accent);white-space:nowrap">${pts}</div>
-          </div>`).join('')}
-        <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;font-weight:800">
-          <div>Total solo por Argentina</div>
-          <div style="color:var(--accent);font-size:1.05rem">23 pts</div>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -1133,10 +983,10 @@ function renderRules() {
     <div class="card-title">Tips</div>
     <div style="display:flex;flex-direction:column;gap:8px">
       ${[
-        ['🎯','Priorizá acertar al campeón — son 10 puntos de bonus más los puntos de los partidos.'],
-        ['⚠️','Máximo 3 equipos del mismo grupo pueden clasificar (2 directos + 1 mejor tercero).'],
+        ['🏆','Acertar al campeón vale 8 pts — ¡es la apuesta más importante!'],
+        ['🥉','No te olvides del 3er puesto (3 pts).'],
         ['📲',`Invitá a un colega con tu link personal y ganás +${REFERRAL_BONUS} pts por cada uno que se registre.`],
-        ['⏰','Las predicciones cierran el 4 de julio antes del inicio de Octavos. ¡Completá tu bracket a tiempo!'],
+        ['💾','Tu prode se guarda automáticamente en cada cambio.'],
       ].map(([icon,text]) => `
         <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;background:var(--surface2);border-radius:8px">
           <span style="font-size:1.1rem;flex-shrink:0">${icon}</span>
@@ -1147,573 +997,55 @@ function renderRules() {
   ${inviteCard()}`;
 }
 
-function goStep(s) { currentStep = s; renderPredictions(); }
-
 // ════════════════════════════════════════════════════
 // SCORING
 // ════════════════════════════════════════════════════
 
-// Find real result for a match between teamA and teamB in a given round
-function findRealResult(roundId, teamA, teamB) {
-  if (!teamA || !teamB) return null;
-  const r = ROUNDS.find(x => x.id === roundId);
-  if (!r) return null;
-  for (let i = 0; i < r.count; i++) {
-    const key = `${roundId}_${i}`;
-    const t = data.teams[key] || {};
-    const res = data.results[key];
-    if (!res) continue;
-    if ((t.home === teamA && t.away === teamB) || (t.home === teamB && t.away === teamA)) {
-      return { ...res, homeTeam: t.home, awayTeam: t.away };
-    }
-  }
-  return null;
-}
-
-// Per-match points for a player's predicted match
-function matchPoints(playerId, roundId, matchIdx) {
-  const saved = (data.predictions[playerId] || {})[roundId] || [];
-  const pm = saved[matchIdx];
-  if (!pm || !pm.home || !pm.away) return null;
-  const real = findRealResult(roundId, pm.home, pm.away);
-  if (!real) return null;
-
-  const realWinner = real.winner === 'home' ? real.homeTeam : real.awayTeam;
-  const playerWinner = pm.winner === 'home' ? pm.home : pm.away;
-  let pts = 0;
-  if (playerWinner === realWinner) pts += 2;
-  // exact score (normalize to player's home/away perspective)
-  const pHome = pm.homeScore, pAway = pm.awayScore;
-  const isHomeMatch = real.homeTeam === pm.home;
-  const rHome = isHomeMatch ? real.home : real.away;
-  const rAway = isHomeMatch ? real.away : real.home;
-  if (pHome === rHome && pAway === rAway) pts += 1;
-  return pts;
-}
-
-// Advancement bonus: did this team actually advance in this round?
-function advBonus(roundId, teamName) {
-  if (!teamName) return false;
-  const r = ROUNDS.find(x => x.id === roundId);
-  if (!r) return false;
-  for (let i = 0; i < r.count; i++) {
-    const key = `${roundId}_${i}`;
-    const res = data.results[key];
-    const t = data.teams[key];
-    if (!res || !t) continue;
-    const winner = res.winner === 'home' ? t.home : t.away;
-    if (winner === teamName) return true;
-  }
-  return false;
-}
-
 function playerStats(playerId) {
-  const preds = data.predictions[playerId] || {};
-  let pts = 0, exact = 0, winners = 0, qualBonus = 0, advBonusPts = 0;
-  let matchesPlayed = 0;
+  const psim = (data.predictions[playerId]?.sim) || {};
+  const off  = data.official || {};
+  let pts = 0;
 
-  // Qualifier bonus
-  const realQ = data.realQualifiers || [];
-  const playerQ = preds.qualifiers || [];
-  const qBonus = playerQ.filter(t => realQ.includes(t)).length;
-  qualBonus = qBonus; pts += qBonus;
-
-  // Per-round
-  for (const r of ROUNDS) {
-    if (r.id === 'TP') continue; // 3rd place has no adv bonus
-    const playerRound = preds[r.id] || [];
-    for (let i = 0; i < r.count; i++) {
-      const pm = playerRound[i];
-      if (!pm || !pm.home || !pm.away) continue;
-      const real = findRealResult(r.id, pm.home, pm.away);
-      if (!real) continue;
-      matchesPlayed++;
-      const realWinner = real.winner === 'home' ? real.homeTeam : real.awayTeam;
-      const playerWinner = pm.winner === 'home' ? pm.home : pm.away;
-      if (playerWinner === realWinner) { winners++; pts += 2; }
-      const isHM = real.homeTeam === pm.home;
-      const rH = isHM ? real.home : real.away;
-      const rA = isHM ? real.away : real.home;
-      if (pm.homeScore === rH && pm.awayScore === rA) { exact++; pts += 1; }
-      // Advancement bonus
-      const bonus = ADV_BONUS[r.id] || 0;
-      if (bonus > 0 && advBonus(r.id, playerWinner)) { advBonusPts += bonus; pts += bonus; }
-    }
-    // TP per-match (no adv bonus)
-    if (r.id !== 'TP') continue;
+  // Fase de grupos: 1° = 3pts, 2° = 2pts
+  for (const grp of 'ABCDEFGHIJKL'.split('')) {
+    const pr = (psim.groupRanks||{})[grp] || {};
+    const or = (off.groupRanks||{})[grp]  || {};
+    if (pr[1] && pr[1] === or[1]) pts += 3;
+    if (pr[2] && pr[2] === or[2]) pts += 2;
   }
-  // TP separately
-  const tpPreds = preds['TP'] || [];
-  const tpm = tpPreds[0];
-  if (tpm && tpm.home && tpm.away) {
-    const real = findRealResult('TP', tpm.home, tpm.away);
-    if (real) {
-      matchesPlayed++;
-      const realWinner = real.winner === 'home' ? real.homeTeam : real.awayTeam;
-      const playerWinner = tpm.winner === 'home' ? tpm.home : tpm.away;
-      if (playerWinner === realWinner) { winners++; pts += 2; }
-      const isHM = real.homeTeam === tpm.home;
-      if (tpm.homeScore === (isHM?real.home:real.away) && tpm.awayScore === (isHM?real.away:real.home)) { exact++; pts += 1; }
+
+  // Mejores terceros: 1pt cada uno
+  for (const t of (psim.thirds||[])) {
+    if ((off.thirds||[]).includes(t)) pts += 1;
+  }
+
+  // Rondas eliminatorias
+  const rounds = [{k:'r32',p:2},{k:'r16',p:3},{k:'qf',p:4},{k:'sf',p:5}];
+  for (const {k,p} of rounds) {
+    const pr = psim[k]||{}, or = off[k]||{};
+    for (const [idx,team] of Object.entries(or)) {
+      if (pr[idx]===team) pts += p;
     }
   }
 
-  // Referral bonus
-  const referrals = data.referrals || {};
-  const refCount = Object.values(referrals).filter(rid => rid === playerId).length;
+  // Campeón y tercer puesto
+  if (psim.final && psim.final===off.final) pts += 8;
+  if (psim.thirdPlace && psim.thirdPlace===off.thirdPlace) pts += 3;
+
+  // Bonus referidos
+  const refCount = Object.values(data.referrals||{}).filter(rid=>rid===playerId).length;
   const refBonus = refCount * REFERRAL_BONUS;
   pts += refBonus;
 
-  return { pts, exact, winners, qualBonus, advBonusPts, matchesPlayed, refBonus, refCount };
+  return { pts, refBonus, refCount };
 }
 
 // ════════════════════════════════════════════════════
-// PREDICTIONS RENDER
-// ════════════════════════════════════════════════════
-
-function renderPredictions() {
-  const container = document.getElementById('predictions-content');
-  ['QF','SF','F','TP'].forEach(r => syncDraftRound(r));
-  updateStatusPts();
-
-  let html = '';
-
-  // Lock banner
-  const locked = isPredictionLocked();
-  if (locked) {
-    html += `<div class="alert" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.35);color:#fca5a5;display:flex;align-items:center;gap:10px;margin-bottom:12px">
-      <span style="font-size:1.2rem;flex-shrink:0">🔒</span>
-      <div>
-        <div style="font-weight:700;font-size:.85rem">Predicciones cerradas</div>
-        <div style="font-size:.75rem;opacity:.85">El período de inscripción cerró el 4 de julio. Ya no podés modificar tus elecciones.</div>
-      </div>
-    </div>`;
-  }
-
-  // Step bar
-  html += `<div class="step-bar">`;
-  STEPS.forEach((s, i) => {
-    const done = isStepDone(i);
-    const cls = i === currentStep ? 'step-btn active' : done ? 'step-btn done' : 'step-btn';
-    html += `<button class="${cls}" onclick="goStep(${i})">
-      <span class="step-num">${i+1}</span>${s.label}
-    </button>`;
-  });
-  html += `</div>`;
-
-  // Step content
-  if (currentStep === 0) html += renderStepQualifiers();
-  else if (currentStep === 1) html += renderStepRound('R16', true);
-  else if (currentStep === 2) html += renderStepRound('QF');
-  else if (currentStep === 3) html += renderStepRound('SF');
-  else if (currentStep === 4) html += renderStepFinal();
-
-  // Nav buttons
-  html += `<div style="display:flex;gap:8px;margin-top:16px;justify-content:space-between">
-    <button class="btn btn-secondary" onclick="goStep(Math.max(0,${currentStep}-1))" ${currentStep===0?'disabled':''}>← Anterior</button>
-    ${currentStep < STEPS.length-1 ? `<button class="btn btn-primary" onclick="goStep(${currentStep+1})">Continuar →</button>` : `<span></span>`}
-  </div>`;
-
-  html += inviteCard();
-  container.innerHTML = html;
-  updateSaveProgress();
-}
-
-function isStepDone(stepIdx) {
-  const s = STEPS[stepIdx];
-  if (s.id === 'qualifiers') return (draft.qualifiers || []).length === QUALIFIER_COUNT;
-  if (s.id === 'final') {
-    const sf = (draft['SF'] || []);
-    const f  = (draft['F']  || []);
-    const tp = (draft['TP'] || []);
-    return sf.length >= 2 && sf[0]?.winner && sf[1]?.winner &&
-           f[0]?.winner && tp[0]?.winner;
-  }
-  const r = ROUNDS.find(x => x.id === s.id);
-  if (!r) return false;
-  const rd = draft[s.id] || [];
-  return rd.filter(m => m?.winner).length === r.count;
-}
-
-// ── STEP 1: QUALIFIER PICKS ──
-function renderStepQualifiers() {
-  const selected = draft.qualifiers || [];
-  const groups = data.groups || defaultGroups();
-  const realQ = data.realQualifiers || [];
-  const resultsIn = realQ.length > 0;
-
-  let html = `<div class="card">
-    <div style="margin-bottom:12px">
-      <div style="font-size:1rem;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Paso 1 — Elegí tus 16 clasificados a Octavos</div>
-      <div class="text-2 text-sm">Seleccioná 16 equipos que crees que llegan a Octavos. Máximo 3 por grupo.</div>
-    </div>`;
-
-  if (!resultsIn) {
-    html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-      <div class="qualifier-counter"><b>${selected.length}</b> / 16 seleccionados</div>
-    </div>`;
-  } else {
-    const correct = selected.filter(t => realQ.includes(t)).length;
-    html += `<div class="alert alert-success" style="margin-bottom:12px">Clasificados reales cargados · Tus puntos: <b>+${correct} pts</b></div>`;
-  }
-
-  groups.forEach(group => {
-    const pickedInGroup = groupPickCount(group.name, selected);
-    const groupFull = pickedInGroup >= MAX_PER_GROUP;
-
-    html += `<div style="margin-bottom:16px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <span style="background:linear-gradient(135deg,var(--grad-start),var(--grad-end));color:#fff;font-weight:800;font-size:.7rem;padding:2px 9px;border-radius:20px;letter-spacing:.06em">GRUPO ${escHtml(group.name)}</span>
-        <span style="font-size:.72rem;color:var(--text2)">${pickedInGroup > 0 ? `${pickedInGroup}/3 elegidos` : ''}</span>
-      </div>
-      <div class="qualifier-grid">`;
-
-    group.teams.forEach(rawTeam => {
-      const t = normTeam(rawTeam);
-      const isSel = selected.includes(t.name);
-      const isDisabledByGroup = !isSel && groupFull;
-      const isDisabled = resultsIn || isDisabledByGroup || isPredictionLocked();
-      let cls = 'q-card';
-      if (resultsIn) {
-        if (isSel && realQ.includes(t.name)) cls += ' result-correct selected';
-        else if (isSel && !realQ.includes(t.name)) cls += ' result-wrong selected';
-        else if (!isSel && realQ.includes(t.name)) cls += ' result-correct';
-        else if (isDisabledByGroup) cls += ' q-card-disabled';
-      } else if (isSel) {
-        cls += ' selected';
-      } else if (isDisabledByGroup || isPredictionLocked()) {
-        cls += ' q-card-disabled';
-      }
-      const style = isDisabled ? 'opacity:.45;pointer-events:none' : '';
-      html += `<div class="${cls}" style="${style};display:flex;align-items:center;justify-content:center" onclick="toggleQualifier('${escJs(t.name)}')">${flagImg(t.code)}${escHtml(t.name)}</div>`;
-    });
-
-    html += `</div></div>`;
-  });
-
-  html += `</div>`;
-
-  html += `<div class="card">
-    <div class="card-title">Sistema de puntos · Bonus por clasificación</div>
-    <div class="adv-bonus-info">
-      <div class="bonus-chip"><div class="pts">+1</div><div class="label">Por cada 8vofinalista</div></div>
-      <div class="bonus-chip"><div class="pts">+2</div><div class="label">Por cada cuartofinalista</div></div>
-      <div class="bonus-chip"><div class="pts">+3</div><div class="label">Por cada semifinalista</div></div>
-      <div class="bonus-chip"><div class="pts">+4</div><div class="label">Por cada finalista</div></div>
-      <div class="bonus-chip"><div class="pts">+10</div><div class="label">Por el campeón</div></div>
-    </div>
-    <div class="text-sm text-2">Todos son adicionales a los puntos por partidos (2 pts ganador + 1 exacto).</div>
-  </div>`;
-
-  return html;
-}
-
-function toggleQualifier(team) {
-  if (isPredictionLocked()) return;
-  if (!draft.qualifiers) draft.qualifiers = [];
-  const idx = draft.qualifiers.indexOf(team);
-  if (idx >= 0) {
-    draft.qualifiers.splice(idx, 1);
-  } else {
-    if (draft.qualifiers.length >= QUALIFIER_COUNT) {
-      showToast('Ya elegiste 16 equipos. Deseleccioná uno antes.');
-      return;
-    }
-    const g = teamGroup(team);
-    if (g && groupPickCount(g.name, draft.qualifiers) >= MAX_PER_GROUP) {
-      showToast(`Máximo ${MAX_PER_GROUP} equipos del Grupo ${g.name}.`);
-      return;
-    }
-    draft.qualifiers.push(team);
-  }
-  autoSave();
-  renderPredictions();
-}
-
-// ── STEP 2: R16 BRACKET BUILDER ──
-function renderStepRound(roundId, isR16 = false) {
-  const r = ROUNDS.find(x => x.id === roundId);
-  const saved = (data.predictions[currentPlayer?.id] || {})[roundId] || [];
-  const rd = draft[roundId] || Array(r.count).fill(null).map(() => ({}));
-
-  let html = `<div class="card">
-    <div style="font-size:1rem;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">${r.name}</div>
-    <div class="text-sm text-2">Predecí el marcador y elegí quién avanza en cada partido.</div>
-    ${isR16 && (draft.qualifiers||[]).length < QUALIFIER_COUNT ? `<div class="alert alert-warn" style="margin-top:10px">Primero elegí tus 16 clasificados en el Paso 1.</div>` : ''}
-  </div>`;
-
-  for (let i = 0; i < r.count; i++) {
-    const m = rd[i] || {};
-    const savedM = saved[i] || {};
-    const realRes = (() => {
-      if (!m.home || !m.away) return null;
-      return findRealResult(roundId, m.home, m.away);
-    })();
-
-    const hasSaved = !!savedM.winner;
-    const hasResult = !!realRes;
-    const cardCls = hasResult ? 'b-match has-result' : (hasSaved ? 'b-match complete' : 'b-match');
-
-    let ptsBadge = '';
-    if (hasResult) {
-      const pts = matchPoints(currentPlayer?.id, roundId, i) || 0;
-      const bonus = (() => {
-        const pWinner = savedM.winner === 'home' ? savedM.home : savedM.away;
-        return advBonus(roundId, pWinner) ? (ADV_BONUS[roundId]||0) : 0;
-      })();
-      const total = pts + bonus;
-      const maxPts = 3 + (ADV_BONUS[roundId]||0);
-      const cls = total === maxPts ? 'pts-max' : total >= 3 ? 'pts-good' : total >= 1 ? 'pts-some' : 'pts-zero';
-      const bonStr = bonus > 0 ? ` +${bonus}★` : '';
-      ptsBadge = `<span class="pts-badge ${cls}">${total} pts${bonStr}</span>`;
-    } else if (hasSaved) {
-      ptsBadge = `<span class="pts-badge pts-pending">guardado</span>`;
-    }
-
-    const disabled = hasResult || isPredictionLocked() ? 'disabled' : '';
-    const homeTeam = isR16 ? (m.home || `Equipo ${i*2+1}`) : (m.home || '?');
-    const awayTeam = isR16 ? (m.away || `Equipo ${i*2+2}`) : (m.away || '?');
-
-    html += `<div class="${cardCls}" id="bm-${roundId}-${i}">
-      <div class="b-match-num">Partido ${i+1} ${ptsBadge ? '· ' : ''}${ptsBadge}</div>`;
-
-    // R16: team selectors from qualifier picks
-    if (isR16) {
-      const picks = draft.qualifiers || [];
-      const usedElsewhere = rd.flatMap((x,j) => j!==i ? [x?.home, x?.away] : []).filter(Boolean);
-      const freeForHome = picks.filter(t => !usedElsewhere.includes(t) && t !== m.away);
-      const freeForAway = picks.filter(t => !usedElsewhere.includes(t) && t !== m.home);
-
-      if (hasResult) {
-        html += `<div class="b-match-row">
-          <span class="b-team home ${!m.home?'tbd':''}">${escHtml(homeTeam)}</span>
-          <div class="score-block">
-            <input class="score-inp" type="number" value="${m.homeScore??''}" disabled>
-            <span class="score-sep">:</span>
-            <input class="score-inp" type="number" value="${m.awayScore??''}" disabled>
-          </div>
-          <span class="b-team away ${!m.away?'tbd':''}">${escHtml(awayTeam)}</span>
-        </div>`;
-      } else {
-        html += `<div class="match-teams-grid">
-          <select class="team-select" onchange="setR16Team(${i},'home',this.value)" ${disabled}>
-            <option value="">— Local —</option>
-            ${m.home ? `<option value="${escHtml(m.home)}" selected>${escHtml(m.home)}</option>` : ''}
-            ${freeForHome.filter(t=>t!==m.home).map(t=>`<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('')}
-          </select>
-          <div class="vs">vs</div>
-          <select class="team-select" onchange="setR16Team(${i},'away',this.value)" ${disabled}>
-            <option value="">— Visitante —</option>
-            ${m.away ? `<option value="${escHtml(m.away)}" selected>${escHtml(m.away)}</option>` : ''}
-            ${freeForAway.filter(t=>t!==m.away).map(t=>`<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="b-match-row">
-          <span class="b-team home ${!m.home?'tbd':''}">${escHtml(homeTeam)}</span>
-          <div class="score-block">
-            <input class="score-inp" type="number" min="0" max="20" value="${m.homeScore??''}" placeholder="—"
-              oninput="setMatchScore('${roundId}',${i},'home',this.value)" ${isPredictionLocked()?'disabled':''}>
-            <span class="score-sep">:</span>
-            <input class="score-inp" type="number" min="0" max="20" value="${m.awayScore??''}" placeholder="—"
-              oninput="setMatchScore('${roundId}',${i},'away',this.value)" ${isPredictionLocked()?'disabled':''}>
-          </div>
-          <span class="b-team away ${!m.away?'tbd':''}">${escHtml(awayTeam)}</span>
-        </div>`;
-      }
-    } else {
-      // QF/SF: teams derived automatically
-      html += `<div class="b-match-row">
-        <span class="b-team home ${!m.home?'tbd':''}">${escHtml(homeTeam)}</span>
-        <div class="score-block">
-          <input class="score-inp" type="number" min="0" max="20" value="${m.homeScore??''}" placeholder="—"
-            oninput="setMatchScore('${roundId}',${i},'home',this.value)" ${!m.home||!m.away||hasResult||isPredictionLocked()?'disabled':''}>
-          <span class="score-sep">:</span>
-          <input class="score-inp" type="number" min="0" max="20" value="${m.awayScore??''}" placeholder="—"
-            oninput="setMatchScore('${roundId}',${i},'away',this.value)" ${!m.home||!m.away||hasResult||isPredictionLocked()?'disabled':''}>
-        </div>
-        <span class="b-team away ${!m.away?'tbd':''}">${escHtml(awayTeam)}</span>
-      </div>`;
-    }
-
-    // Winner buttons
-    const hSel = m.winner === 'home' ? 'selected' : '';
-    const aSel = m.winner === 'away' ? 'selected' : '';
-    if (hasResult) {
-      const realW = realRes.winner === 'home' ? realRes.homeTeam : realRes.awayTeam;
-      const hCls = realW === homeTeam ? 'winner-btn correct' : (m.winner==='home'?'winner-btn wrong':'winner-btn');
-      const aCls = realW === awayTeam ? 'winner-btn correct' : (m.winner==='away'?'winner-btn wrong':'winner-btn');
-      html += `<div class="winner-row">
-        <div class="winner-label">¿Quién avanza?</div>
-        <div class="winner-btns">
-          <button class="${hCls}" disabled>${escHtml(homeTeam)}</button>
-          <button class="${aCls}" disabled>${escHtml(awayTeam)}</button>
-        </div>
-      </div>`;
-      const isHM = realRes.homeTeam === homeTeam;
-      const rH = isHM ? realRes.home : realRes.away;
-      const rA = isHM ? realRes.away : realRes.home;
-      const corrScore = (m.homeScore===rH && m.awayScore===rA);
-      html += `<div class="result-row">
-        <span class="result-label">Resultado:</span>
-        <span class="result-score">${rH} - ${rA}</span>
-        ${corrScore ? '<span class="check">✔ exacto</span>' : `<span class="cross">✘ (pred: ${m.homeScore??'?'}-${m.awayScore??'?'})</span>`}
-      </div>`;
-    } else if (m.home && m.away) {
-      html += `<div class="winner-row">
-        <div class="winner-label">${isPredictionLocked() ? '¿Quién avanza?' : '¿Quién avanza? <span style="color:var(--red)">*</span>'}</div>
-        <div class="winner-btns">
-          <button class="winner-btn ${hSel}" onclick="setWinner('${roundId}',${i},'home')" ${isPredictionLocked()?'disabled':''}>${escHtml(homeTeam)}</button>
-          <button class="winner-btn ${aSel}" onclick="setWinner('${roundId}',${i},'away')" ${isPredictionLocked()?'disabled':''}>${escHtml(awayTeam)}</button>
-        </div>
-      </div>`;
-    }
-
-    html += `</div>`;
-  }
-  return html;
-}
-
-// ── STEP 5: SF + FINAL + 3P ──
-function renderStepFinal() {
-  return `
-    <div class="card">
-      <div style="font-size:1rem;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Semifinales · 3er Puesto · Final</div>
-      <div class="text-sm text-2">Predecí los últimos partidos del torneo.</div>
-    </div>
-    <div class="bracket-section">
-      <div class="bracket-round-title">Semifinales <span class="bracket-round-badge">+4 pts por finalista</span></div>
-      ${renderStepRound('SF').replace(/<div class="card">[\s\S]*?<\/div>/, '')}
-    </div>
-    <div class="bracket-section">
-      <div class="bracket-round-title">Final <span class="bracket-round-badge">+10 pts por campeón</span></div>
-      ${renderRoundMatches('F')}
-    </div>
-    <div class="bracket-section">
-      <div class="bracket-round-title">3er Puesto</div>
-      ${renderRoundMatches('TP')}
-    </div>`;
-}
-
-function renderRoundMatches(roundId) {
-  const r = ROUNDS.find(x => x.id === roundId);
-  let html = '';
-  const rd = draft[roundId] || Array(r.count).fill(null).map(() => ({}));
-  const saved = (data.predictions[currentPlayer?.id] || {})[roundId] || [];
-  for (let i = 0; i < r.count; i++) {
-    const m = rd[i] || {};
-    const savedM = saved[i] || {};
-    const realRes = (() => { if (!m.home||!m.away) return null; return findRealResult(roundId, m.home, m.away); })();
-    const hasSaved = !!savedM.winner;
-    const hasResult = !!realRes;
-    const cardCls = hasResult ? 'b-match has-result' : (hasSaved ? 'b-match complete' : 'b-match');
-    const homeTeam = m.home || '?', awayTeam = m.away || '?';
-
-    let ptsBadge = '';
-    if (hasResult) {
-      const pts = matchPoints(currentPlayer?.id, roundId, i) || 0;
-      const bonus = (() => { const pw = savedM.winner==='home'?savedM.home:savedM.away; return advBonus(roundId, pw) ? (ADV_BONUS[roundId]||0) : 0; })();
-      const total = pts + bonus; const maxPts = 3 + (ADV_BONUS[roundId]||0);
-      const cls = total===maxPts?'pts-max':total>=3?'pts-good':total>=1?'pts-some':'pts-zero';
-      ptsBadge = `<span class="pts-badge ${cls}">${total} pts${bonus>0?` +${bonus}★`:''}</span>`;
-    } else if (hasSaved) ptsBadge = `<span class="pts-badge pts-pending">guardado</span>`;
-
-    html += `<div class="${cardCls}">
-      <div class="b-match-num">Partido ${i+1} ${ptsBadge?'· ':''} ${ptsBadge}</div>
-      <div class="b-match-row">
-        <span class="b-team home ${!m.home?'tbd':''}">${escHtml(homeTeam)}</span>
-        <div class="score-block">
-          <input class="score-inp" type="number" min="0" max="20" value="${m.homeScore??''}" placeholder="—"
-            oninput="setMatchScore('${roundId}',${i},'home',this.value)" ${!m.home||!m.away||hasResult?'disabled':''}>
-          <span class="score-sep">:</span>
-          <input class="score-inp" type="number" min="0" max="20" value="${m.awayScore??''}" placeholder="—"
-            oninput="setMatchScore('${roundId}',${i},'away',this.value)" ${!m.home||!m.away||hasResult?'disabled':''}>
-        </div>
-        <span class="b-team away ${!m.away?'tbd':''}">${escHtml(awayTeam)}</span>
-      </div>`;
-    if (m.home && m.away) {
-      const hSel = m.winner==='home'?'selected':'', aSel = m.winner==='away'?'selected':'';
-      if (hasResult) {
-        const realW = realRes.winner==='home'?realRes.homeTeam:realRes.awayTeam;
-        const hCls = realW===homeTeam?'winner-btn correct':(m.winner==='home'?'winner-btn wrong':'winner-btn');
-        const aCls = realW===awayTeam?'winner-btn correct':(m.winner==='away'?'winner-btn wrong':'winner-btn');
-        html += `<div class="winner-row"><div class="winner-label">¿Quién avanza?</div><div class="winner-btns"><button class="${hCls}" disabled>${escHtml(homeTeam)}</button><button class="${aCls}" disabled>${escHtml(awayTeam)}</button></div></div>`;
-        const isHM = realRes.homeTeam===homeTeam;
-        html += `<div class="result-row"><span class="result-label">Resultado:</span><span class="result-score">${isHM?realRes.home:realRes.away} - ${isHM?realRes.away:realRes.home}</span></div>`;
-      } else {
-        html += `<div class="winner-row"><div class="winner-label">¿Quién avanza? <span style="color:var(--red)">*</span></div><div class="winner-btns"><button class="winner-btn ${hSel}" onclick="setWinner('${roundId}',${i},'home')">${escHtml(homeTeam)}</button><button class="winner-btn ${aSel}" onclick="setWinner('${roundId}',${i},'away')">${escHtml(awayTeam)}</button></div></div>`;
-      }
-    }
-    html += `</div>`;
-  }
-  return html;
-}
-
-// ════════════════════════════════════════════════════
-// DRAFT MUTATIONS
-// ════════════════════════════════════════════════════
-
-function setR16Team(matchIdx, side, value) {
-  if (isPredictionLocked()) return;
-  if (!draft['R16']) draft['R16'] = Array(8).fill(null).map(()=>({}));
-  if (!draft['R16'][matchIdx]) draft['R16'][matchIdx] = {};
-  draft['R16'][matchIdx][side] = value;
-  draft['R16'][matchIdx].winner = null;
-  autoSave();
-  renderPredictions();
-}
-
-function setMatchScore(roundId, matchIdx, side, value) {
-  if (isPredictionLocked()) return;
-  if (!draft[roundId]) draft[roundId] = Array(ROUNDS.find(r=>r.id===roundId).count).fill(null).map(()=>({}));
-  if (!draft[roundId][matchIdx]) draft[roundId][matchIdx] = {};
-  const n = value === '' ? '' : Math.max(0, parseInt(value)||0);
-  draft[roundId][matchIdx][side === 'home' ? 'homeScore' : 'awayScore'] = n;
-  autoSave();
-}
-
-function setWinner(roundId, matchIdx, side) {
-  if (isPredictionLocked()) return;
-  if (!draft[roundId]) draft[roundId] = Array(ROUNDS.find(r=>r.id===roundId).count).fill(null).map(()=>({}));
-  if (!draft[roundId][matchIdx]) draft[roundId][matchIdx] = {};
-  draft[roundId][matchIdx].winner = side;
-  const order = ['R16','QF','SF','F','TP'];
-  const idx = order.indexOf(roundId);
-  for (let i = idx+1; i < order.length; i++) syncDraftRound(order[i]);
-  autoSave();
-  renderPredictions();
-}
-
-function autoSave() {
-  if (!currentPlayer || isAdmin) return;
-  if (!data.predictions[currentPlayer.id]) data.predictions[currentPlayer.id] = {};
-  const saved = data.predictions[currentPlayer.id];
-  saved.qualifiers = [...(draft.qualifiers || [])];
-  for (const r of ROUNDS) {
-    if (draft[r.id]) saved[r.id] = JSON.parse(JSON.stringify(draft[r.id]));
-  }
-  saveData();
-  updateSaveProgress();
-  updateStatusPts();
-  const ind = document.getElementById('autosave-indicator');
-  if (ind) { ind.style.display = 'inline'; clearTimeout(ind._t); ind._t = setTimeout(() => ind.style.display = 'none', 2000); }
-}
-
-function savePredictions() { autoSave(); }
-
-function updateSaveProgress() {
-  const el = document.getElementById('save-progress-text');
-  if (!el) return;
-  const q = (draft.qualifiers||[]).length;
-  let matches = 0, total = 0;
-  for (const r of ROUNDS) { total += r.count; matches += (draft[r.id]||[]).filter(m=>m?.winner).length; }
-  el.textContent = `Clasificados: ${q}/16 · Partidos: ${matches}/${total}`;
-}
-
 function updateStatusPts() {
   const el = document.getElementById('status-pts-text');
   if (!el || !currentPlayer || isAdmin) return;
-  const stats = playerStats(currentPlayer.id);
-  const played = Object.keys(data.results).length + (data.realQualifiers||[]).length;
-  el.textContent = played > 0 ? `${stats.pts} pts` : '';
+  if (!data.official) { el.textContent = ''; return; }
+  el.textContent = `${playerStats(currentPlayer.id).pts} pts`;
 }
 
 // ════════════════════════════════════════════════════
@@ -1722,38 +1054,28 @@ function updateStatusPts() {
 
 function renderLeaderboard() {
   const container = document.getElementById('leaderboard-content');
-  const realQCount = (data.realQualifiers||[]).length;
-  const resultsCount = Object.keys(data.results).length;
-
   const rows = data.players.map(p => ({ ...p, stats: playerStats(p.id) }))
-    .sort((a,b) => b.stats.pts - a.stats.pts || b.stats.exact - a.stats.exact);
+    .sort((a,b) => b.stats.pts - a.stats.pts);
 
-  let html = '';
-  if (realQCount === 0 && resultsCount === 0) {
-    html += `<div class="alert alert-info">📋 La tabla se actualizará cuando el admin cargue resultados.</div>`;
-  } else {
-    html += `<div class="alert alert-success">⚽ ${realQCount > 0 ? realQCount + ' clasificados confirmados' : ''} ${resultsCount > 0 ? '· ' + resultsCount + ' resultados de partidos' : ''}</div>`;
-  }
+  let html = data.official
+    ? `<div class="alert alert-success">✅ Resultados oficiales cargados — puntajes activos</div>`
+    : `<div class="alert alert-info">📋 El puntaje se actualizará cuando el admin cargue los resultados.</div>`;
 
   if (rows.length === 0) {
     html += `<div class="empty-state"><div class="empty-icon">🏆</div><p>No hay jugadores registrados.</p></div>`;
   } else {
     html += `<div class="card"><table class="lb-table"><thead><tr>
-      <th>#</th><th>Jugador</th><th>Total</th><th>Base</th><th>Clas.</th><th>Avance</th><th>Referidos 📲</th>
+      <th>#</th><th>Jugador</th><th>Total</th><th>Referidos 📲</th>
     </tr></thead><tbody>`;
     rows.forEach((p, i) => {
       const rank = i+1;
       const cls = rank===1?'r1':rank===2?'r2':rank===3?'r3':'';
       const emoji = rank===1?'🥇':rank===2?'🥈':rank===3?'🥉':rank;
-      const basePts = p.stats.pts - p.stats.qualBonus - p.stats.advBonusPts - (p.stats.refBonus||0);
       html += `<tr>
         <td class="rank-cell ${cls}">${emoji}</td>
         <td class="player-cell">${escHtml(p.name)}</td>
         <td class="total-cell">${p.stats.pts}</td>
-        <td class="text-sm text-2">${basePts}</td>
-        <td class="text-sm" style="color:var(--accent2)">${p.stats.qualBonus>0?'+'+p.stats.qualBonus:'—'}</td>
-        <td class="text-sm" style="color:var(--gold)">${p.stats.advBonusPts>0?'+'+p.stats.advBonusPts:'—'}</td>
-        <td class="text-sm" style="color:#a78bfa">${p.stats.refCount>0?`+${p.stats.refBonus} (${p.stats.refCount})` :'—'}</td>
+        <td class="text-sm" style="color:#a78bfa">${p.stats.refCount>0?`+${p.stats.refBonus} (${p.stats.refCount})`:'—'}</td>
       </tr>`;
     });
     html += `</tbody></table></div>`;
@@ -1773,9 +1095,8 @@ function switchAdminTab(t) { adminTab = t; renderAdmin(); }
 function renderAdmin() {
   const container = document.getElementById('admin-content');
   let html = `<div class="tabs">
-    <button class="tab ${adminTab==='equipos'?'active':''}" onclick="switchAdminTab('equipos')">⚽ Equipos (48)</button>
-    <button class="tab ${adminTab==='clasificados'?'active':''}" onclick="switchAdminTab('clasificados')">✅ Clasificados</button>
-    <button class="tab ${adminTab==='resultados'?'active':''}" onclick="switchAdminTab('resultados')">📊 Resultados</button>
+    <button class="tab ${adminTab==='equipos'?'active':''}" onclick="switchAdminTab('equipos')">⚽ Equipos</button>
+    <button class="tab ${adminTab==='resultados'?'active':''}" onclick="switchAdminTab('resultados')">✅ Resultados</button>
     <button class="tab ${adminTab==='jugadores'?'active':''}" onclick="switchAdminTab('jugadores')">👥 Jugadores</button>
     <button class="tab ${adminTab==='config'?'active':''}" onclick="switchAdminTab('config')">⚙️ Config</button>
   </div>`;
@@ -1802,68 +1123,8 @@ function renderAdmin() {
     });
   }
 
-  else if (adminTab === 'clasificados') {
-    const real = data.realQualifiers || [];
-    const groups = data.groups || defaultGroups();
-    const allTeams = groups.flatMap(g => g.teams);
-    html += `<div class="alert alert-warn">⚠️ Al confirmar los clasificados se calculan los puntos de bonus de todos los jugadores.</div>
-    <div class="card"><div class="card-title">¿Cuáles 16 equipos clasificaron a Octavos? (${real.length}/16)</div>`;
-    groups.forEach(g => {
-      html += `<div style="margin-bottom:12px">
-        <div style="font-size:.7rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Grupo ${escHtml(g.name)}</div>
-        <div class="qualifier-real-grid">`;
-      g.teams.forEach(rawT => {
-        const t = normTeam(rawT);
-        const sel = real.includes(t.name);
-        html += `<button class="qualifier-real-btn ${sel?'selected':''}" onclick="toggleRealQualifier('${escJs(t.name)}')" style="display:inline-flex;align-items:center">${flagImg(t.code,13)}${escHtml(t.name)}</button>`;
-      });
-      html += `</div></div>`;
-    });
-    html += `</div>`;
-  }
-
   else if (adminTab === 'resultados') {
-    html += `<div class="alert alert-warn">⚠️ Al cargar resultados los jugadores ya no pueden editar ese partido.</div>`;
-    for (const r of ROUNDS) {
-      html += `<div style="margin:18px 0 8px"><span style="font-weight:800;font-size:.85rem;color:var(--accent);text-transform:uppercase;letter-spacing:.05em">${r.name}</span></div>`;
-      for (let i = 0; i < r.count; i++) {
-        const key = `${r.id}_${i}`;
-        const t = data.teams[key] || { home:'', away:'' };
-        const res = data.results[key];
-        html += `<div class="admin-match">
-          <div style="font-size:.68rem;color:var(--text2);margin-bottom:8px">Partido ${i+1}</div>
-          <div class="match-teams-grid" style="margin-bottom:8px">
-            <input class="admin-inp" type="text" value="${escHtml(t.home)}" placeholder="Equipo local"
-              oninput="setAdminTeam('${key}','home',this.value)" maxlength="25">
-            <div class="vs">vs</div>
-            <input class="admin-inp" type="text" value="${escHtml(t.away)}" placeholder="Equipo visitante"
-              oninput="setAdminTeam('${key}','away',this.value)" maxlength="25">
-          </div>`;
-        if (res) {
-          const wName = res.winner==='home'?t.home:t.away;
-          html += `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-            <span style="color:var(--gold);font-weight:700">${res.home} - ${res.away}</span>
-            <span class="text-sm text-2">Avanzó: <b>${escHtml(wName)}</b></span>
-          </div>
-          <button class="btn btn-sm btn-danger" onclick="clearResult('${key}')">✕ Borrar</button>`;
-        } else {
-          html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-            <input class="score-inp-sm" type="number" min="0" max="20" placeholder="0" id="ar-${key}-h">
-            <span class="text-2">-</span>
-            <input class="score-inp-sm" type="number" min="0" max="20" placeholder="0" id="ar-${key}-a">
-          </div>
-          <div style="margin-bottom:8px">
-            <div class="winner-label">¿Quién avanza?</div>
-            <div class="winner-btns">
-              <button class="winner-btn" id="arw-${key}-home" onclick="adminPickWinner('${key}','home')">${escHtml(t.home||'Local')}</button>
-              <button class="winner-btn" id="arw-${key}-away" onclick="adminPickWinner('${key}','away')">${escHtml(t.away||'Visitante')}</button>
-            </div>
-          </div>
-          <button class="btn btn-sm btn-primary" onclick="saveResult('${key}')">✓ Guardar resultado</button>`;
-        }
-        html += `</div>`;
-      }
-    }
+    html += renderOfficialTab();
   }
 
   else if (adminTab === 'jugadores') {
@@ -1985,16 +1246,7 @@ function setPool(i, val) {
   savePoolTimer = setTimeout(saveData, 600);
 }
 
-function toggleRealQualifier(team) {
-  if (!data.realQualifiers) data.realQualifiers = [];
-  const idx = data.realQualifiers.indexOf(team);
-  if (idx >= 0) data.realQualifiers.splice(idx, 1);
-  else {
-    if (data.realQualifiers.length >= QUALIFIER_COUNT) { showToast('Ya hay 16 clasificados.'); return; }
-    data.realQualifiers.push(team);
-  }
-  saveData(); renderAdmin();
-}
+// toggleRealQualifier legacy — no longer used
 
 // ════════════════════════════════════════════════════
 // EXPORT / IMPORT
@@ -2152,6 +1404,172 @@ function resetData() {
 }
 
 // ════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
+// OFFICIAL RESULTS (admin)
+// ════════════════════════════════════════════════════
+
+let offSim = null;
+function ensureOffSim() {
+  if (offSim) return;
+  const base = {step:'groups',groupRanks:{},thirds:[],r32:{},r16:{},qf:{},sf:{},final:null,thirdPlace:null};
+  offSim = data.official ? {...base,...data.official,step:'groups'} : base;
+}
+function offResolvePos(pos) { const rank=parseInt(pos[0]),grp=pos[1]; return (offSim.groupRanks[grp]||{})[rank]||''; }
+function offGetThirdGroup(team) { for(const [g,r] of Object.entries(offSim.groupRanks)) if(r[3]===team) return g; return ''; }
+function offGetThirdAssignments() {
+  const slotIds=Object.keys(SIM_THIRD_SLOTS).map(Number);
+  const available=[...offSim.thirds]; const result={};
+  slotIds.sort((a,b)=>available.filter(t=>SIM_THIRD_SLOTS[a].includes(offGetThirdGroup(t))).length - available.filter(t=>SIM_THIRD_SLOTS[b].includes(offGetThirdGroup(t))).length);
+  for(const sid of slotIds){ const idx=available.findIndex(t=>SIM_THIRD_SLOTS[sid].includes(offGetThirdGroup(t))); if(idx>=0){result[sid]=available[idx];available.splice(idx,1);}else result[sid]=''; }
+  return result;
+}
+function offGetR32Team(mi,side) { const m=SIM_R32[mi],pos=side==='home'?m.home:m.away; if(pos==='3rd') return offGetThirdAssignments()[mi]||''; return offResolvePos(pos); }
+function offGetR16Team(mi,side) { return offSim.r32[SIM_R16_SOURCES[mi][side==='home'?0:1]]||''; }
+function offGetQFTeam(mi,side)  { return offSim.r16[SIM_QF_SOURCES[mi][side==='home'?0:1]]||''; }
+function offGetSFTeam(mi,side)  { return offSim.qf[SIM_SF_SOURCES[mi][side==='home'?0:1]]||''; }
+
+function offSetRank(grp,rank,team) {
+  ensureOffSim();
+  if(!offSim.groupRanks[grp]) offSim.groupRanks[grp]={};
+  if((offSim.groupRanks[grp][rank]||'')===team) return;
+  for(const r of [1,2,3]) if(offSim.groupRanks[grp][r]===team&&r!==rank) delete offSim.groupRanks[grp][r];
+  if(team) offSim.groupRanks[grp][rank]=team; else delete offSim.groupRanks[grp][rank];
+  offSim.thirds=[]; offSim.r32={}; offSim.r16={}; offSim.qf={}; offSim.sf={}; offSim.final=null; offSim.thirdPlace=null;
+  renderAdmin();
+}
+function offToggleThird(team) {
+  ensureOffSim();
+  const idx=offSim.thirds.indexOf(team);
+  if(idx>=0) offSim.thirds.splice(idx,1); else if(offSim.thirds.length<8) offSim.thirds.push(team);
+  offSim.r32={}; offSim.r16={}; offSim.qf={}; offSim.sf={}; offSim.final=null; offSim.thirdPlace=null;
+  renderAdmin();
+}
+function offPickWinner(round,idx,team) {
+  ensureOffSim();
+  if(offSim[round][idx]===team) delete offSim[round][idx]; else offSim[round][idx]=team;
+  if(round==='r32'){ const r16i=R32_TO_R16[idx]; if(r16i!==undefined){delete offSim.r16[r16i]; const qfi=R16_TO_QF[r16i]; if(qfi!==undefined){delete offSim.qf[qfi]; const sfi=QF_TO_SF[qfi]; if(sfi!==undefined) delete offSim.sf[sfi];}} offSim.final=null; offSim.thirdPlace=null; }
+  else if(round==='r16'){ const qfi=R16_TO_QF[idx]; if(qfi!==undefined){delete offSim.qf[qfi]; const sfi=QF_TO_SF[qfi]; if(sfi!==undefined) delete offSim.sf[sfi];} offSim.final=null; offSim.thirdPlace=null; }
+  else if(round==='qf'){ const sfi=QF_TO_SF[idx]; if(sfi!==undefined) delete offSim.sf[sfi]; offSim.final=null; offSim.thirdPlace=null; }
+  else if(round==='sf'){ offSim.final=null; offSim.thirdPlace=null; }
+  renderAdmin();
+}
+function offGoStep(step) { ensureOffSim(); offSim.step=step; renderAdmin(); }
+function offSaveOfficial() {
+  ensureOffSim();
+  data.official = { groupRanks:offSim.groupRanks, thirds:offSim.thirds, r32:offSim.r32, r16:offSim.r16, qf:offSim.qf, sf:offSim.sf, final:offSim.final, thirdPlace:offSim.thirdPlace };
+  saveData(); showToast('✅ Resultados oficiales guardados'); renderAdmin();
+}
+function offReset() {
+  offSim=null; data.official=null; saveData(); showToast('🗑 Resultados eliminados'); renderAdmin();
+}
+
+function renderOfficialTab() {
+  ensureOffSim();
+  const o = offSim;
+  const groups = data.groups || defaultGroups();
+  const STEPS=['groups','thirds','r32','r16','qf','sf','final'];
+  const LBLS =['Grupos','Mej. 3°','32vos','Octavos','Cuartos','Semis','Final'];
+  const si = STEPS.indexOf(o.step||'groups');
+  let h = `<div style="margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-size:.78rem;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.06em">Resultados Oficiales</span>
+      <button onclick="offReset()" style="background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:4px 10px;font-size:.72rem;cursor:pointer">🗑 Borrar todo</button>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+      ${STEPS.map((s,i)=>`<button onclick="offGoStep('${s}')" style="padding:4px 10px;border-radius:20px;font-size:.7rem;font-weight:600;border:none;cursor:pointer;background:${si===i?'var(--accent)':'rgba(255,255,255,.1)'};color:${si===i?'#000':'var(--text2)'}">${LBLS[i]}</button>`).join('')}
+    </div>
+  </div>`;
+
+  // GROUPS
+  if (o.step==='groups') {
+    h += `<div class="alert alert-info" style="font-size:.75rem;margin-bottom:10px">Ingresá 1° y 2° de cada grupo. El 3° se define en el paso siguiente.</div>`;
+    groups.forEach(g => {
+      const ranks = o.groupRanks[g.name]||{};
+      h += `<div class="card" style="margin-bottom:8px"><div class="card-title" style="margin-bottom:6px">Grupo ${escHtml(g.name)}</div>`;
+      [1,2,3].forEach(rank => {
+        const label = rank===1?'🥇 1°':rank===2?'🥈 2°':'🥉 3°';
+        h += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="font-size:.72rem;width:32px;color:var(--text2)">${label}</span>
+          <select onchange="offSetRank('${g.name}',${rank},this.value)" style="flex:1;background:var(--surface3);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:.78rem">
+            <option value="">— seleccionar —</option>
+            ${g.teams.map(rawT=>{const t=normTeam(rawT);return`<option value="${escHtml(t.name)}" ${ranks[rank]===t.name?'selected':''}>${t.name}</option>`;}).join('')}
+          </select>
+        </div>`;
+      });
+      h += `</div>`;
+    });
+    const grpsDone = groups.filter(g=>{const r=o.groupRanks[g.name]||{};return r[1]&&r[2]&&r[3];}).length;
+    if (grpsDone===12) h += `<button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="offGoStep('thirds')">Siguiente: Mejores Terceros →</button>`;
+    else h += `<div class="text-sm text-2" style="text-align:center;padding:8px">${grpsDone}/12 grupos completados</div>`;
+  }
+
+  // THIRDS
+  else if (o.step==='thirds') {
+    const allThirds = groups.map(g=>{const r=o.groupRanks[g.name]||{};return r[3]?{name:r[3],grp:g.name}:null;}).filter(Boolean);
+    h += `<div class="alert alert-info" style="font-size:.75rem;margin-bottom:10px">Seleccioná los 8 mejores terceros que avanzaron (${o.thirds.length}/8)</div>`;
+    h += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">`;
+    allThirds.forEach(({name,grp})=>{
+      const sel=o.thirds.includes(name);
+      const t=normTeam(groups.find(g=>g.name===grp).teams.find(x=>normTeam(x).name===name)||name);
+      h += `<button onclick="offToggleThird('${escJs(name)}')" style="display:flex;align-items:center;gap:4px;padding:5px 10px;border-radius:16px;border:1px solid ${sel?'var(--accent)':'var(--border)'};background:${sel?'rgba(88,192,236,.2)':'transparent'};color:${sel?'var(--accent)':'var(--text2)'};cursor:pointer;font-size:.76rem">${flagImg(t.code,12)}${escHtml(name)} <span style="opacity:.6;font-size:.65rem">Gr.${grp}</span></button>`;
+    });
+    h += `</div>`;
+    if (o.thirds.length===8) h += `<button class="btn btn-primary" style="width:100%" onclick="offGoStep('r32')">Siguiente: Dieciseisavos →</button>`;
+  }
+
+  // KNOCKOUT ROUNDS
+  else {
+    const roundCfg = {
+      r32: {label:'Dieciseisavos (P73-P88)', count:16, getH:(mi)=>offGetR32Team(mi,'home')||SIM_R32[mi].hLbl, getA:(mi)=>offGetR32Team(mi,'away')||SIM_R32[mi].aLbl, store:'r32', next:'r16', nextLabel:'Octavos'},
+      r16: {label:'Octavos (P89-P96)', count:8, getH:(mi)=>offGetR16Team(mi,'home')||`Gan. P${73+SIM_R16_SOURCES[mi][0]}`, getA:(mi)=>offGetR16Team(mi,'away')||`Gan. P${73+SIM_R16_SOURCES[mi][1]}`, store:'r16', next:'qf', nextLabel:'Cuartos'},
+      qf:  {label:'Cuartos (P97-P100)', count:4, getH:(mi)=>offGetQFTeam(mi,'home')||`Gan. P${89+SIM_QF_SOURCES[mi][0]}`, getA:(mi)=>offGetQFTeam(mi,'away')||`Gan. P${89+SIM_QF_SOURCES[mi][1]}`, store:'qf', next:'sf', nextLabel:'Semis'},
+      sf:  {label:'Semifinales (P101-P102)', count:2, getH:(mi)=>offGetSFTeam(mi,'home')||`Gan. P${97+SIM_SF_SOURCES[mi][0]}`, getA:(mi)=>offGetSFTeam(mi,'away')||`Gan. P${97+SIM_SF_SOURCES[mi][1]}`, store:'sf', next:'final', nextLabel:'Final'},
+    };
+    const finalStep = o.step==='final';
+    const cfg = !finalStep ? roundCfg[o.step] : null;
+
+    if (!finalStep && cfg) {
+      h += `<div style="font-size:.8rem;font-weight:700;color:var(--accent);margin-bottom:10px">${cfg.label}</div>`;
+      for(let mi=0;mi<cfg.count;mi++) {
+        const homeT=cfg.getH(mi), awayT=cfg.getA(mi);
+        const winner=o[cfg.store][mi];
+        h += `<div class="sim-match" style="margin-bottom:8px">
+          <button onclick="offPickWinner('${cfg.store}',${mi},'${escJs(homeT)}')" class="sim-team-btn ${winner===homeT&&homeT?'sim-winner':''}" ${!homeT?'disabled':''}>${escHtml(homeT||'?')}</button>
+          <span class="vs">vs</span>
+          <button onclick="offPickWinner('${cfg.store}',${mi},'${escJs(awayT)}')" class="sim-team-btn ${winner===awayT&&awayT?'sim-winner':''}" ${!awayT?'disabled':''}>${escHtml(awayT||'?')}</button>
+        </div>`;
+      }
+      const done=Object.keys(o[cfg.store]).length;
+      if(done===cfg.count) h+=`<button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="offGoStep('${cfg.next}')">Siguiente: ${cfg.nextLabel} →</button>`;
+      else h+=`<div class="text-sm text-2" style="text-align:center;padding:8px">${done}/${cfg.count} definidos</div>`;
+    }
+
+    if (finalStep) {
+      const sf1H=offGetSFTeam(0,'home'),sf1A=offGetSFTeam(0,'away');
+      const sf2H=offGetSFTeam(1,'home'),sf2A=offGetSFTeam(1,'away');
+      const sf1W=o.sf[0], sf2W=o.sf[1];
+      const tp1=sf1W===sf1H?sf1A:sf1H, tp2=sf2W===sf2H?sf2A:sf2H;
+      h += `<div style="font-size:.8rem;font-weight:700;color:var(--gold);margin-bottom:10px">3er Puesto (P103)</div>
+        <div class="sim-match" style="margin-bottom:12px">
+          <button onclick="offSim.thirdPlace='${escJs(tp1||'')}';renderAdmin();" class="sim-team-btn ${o.thirdPlace===tp1&&tp1?'sim-winner':''}" ${!tp1?'disabled':''}>${escHtml(tp1||'?')}</button>
+          <span class="vs">vs</span>
+          <button onclick="offSim.thirdPlace='${escJs(tp2||'')}';renderAdmin();" class="sim-team-btn ${o.thirdPlace===tp2&&tp2?'sim-winner':''}" ${!tp2?'disabled':''}>${escHtml(tp2||'?')}</button>
+        </div>
+        <div style="font-size:.8rem;font-weight:700;color:var(--gold);margin-bottom:10px">Final (P104)</div>
+        <div class="sim-match" style="margin-bottom:16px">
+          <button onclick="offSim.final='${escJs(sf1W||'')}';renderAdmin();" class="sim-team-btn ${o.final===sf1W&&sf1W?'sim-winner':''}" ${!sf1W?'disabled':''}>${escHtml(sf1W||'?')}</button>
+          <span class="vs">vs</span>
+          <button onclick="offSim.final='${escJs(sf2W||'')}';renderAdmin();" class="sim-team-btn ${o.final===sf2W&&sf2W?'sim-winner':''}" ${!sf2W?'disabled':''}>${escHtml(sf2W||'?')}</button>
+        </div>`;
+      if (o.final && o.thirdPlace) {
+        h += `<button class="btn btn-primary" style="width:100%;font-size:.9rem;padding:12px" onclick="offSaveOfficial()">💾 Guardar resultados oficiales</button>`;
+      }
+    }
+  }
+  if (data.official) h += `<div style="margin-top:16px;padding:10px;background:rgba(88,192,236,.1);border-radius:8px;font-size:.75rem;color:var(--accent);text-align:center">✅ Resultados oficiales guardados — el puntaje de los jugadores ya está activo</div>`;
+  return h;
+}
+
 // SIMULATION — bracket oficial FIFA 2026
 // ════════════════════════════════════════════════════
 
@@ -2272,6 +1690,20 @@ function simGetQFLabel(mi, side)  { return 'Gan. P'+(89+SIM_QF_SOURCES[mi][side=
 function simGetSFTeam(mi, side)   { return sim.qf[SIM_SF_SOURCES[mi][side==='home'?0:1]] || ''; }
 function simGetSFLabel(mi, side)  { return 'Gan. P'+(97+SIM_SF_SOURCES[mi][side==='home'?0:1]); }
 
+function saveSimState() {
+  if (!currentPlayer || isAdmin) return;
+  if (!data.predictions[currentPlayer.id]) data.predictions[currentPlayer.id] = {};
+  data.predictions[currentPlayer.id].sim = {
+    groupRanks: sim.groupRanks, thirds: sim.thirds,
+    r32: sim.r32, r16: sim.r16, qf: sim.qf, sf: sim.sf,
+    final: sim.final, thirdPlace: sim.thirdPlace,
+  };
+  saveData();
+  updateStatusPts();
+  const ind = document.getElementById('autosave-indicator');
+  if (ind) { ind.style.display='inline'; clearTimeout(ind._t); ind._t=setTimeout(()=>ind.style.display='none',2000); }
+}
+
 function simSetRank(grp, rank, team) {
   if (!sim.groupRanks[grp]) sim.groupRanks[grp] = {};
   if ((sim.groupRanks[grp][rank]||'') === team) return;
@@ -2279,17 +1711,16 @@ function simSetRank(grp, rank, team) {
   if (team) sim.groupRanks[grp][rank] = team; else delete sim.groupRanks[grp][rank];
   sim.thirds=[]; sim.r32={}; sim.r16={}; sim.qf={}; sim.sf={};
   sim.final=null; sim.thirdPlace=null;
-  renderSimulate();
+  renderSimulate(); saveSimState();
 }
 function simToggleThird(team) {
   const idx = sim.thirds.indexOf(team);
   if (idx>=0) sim.thirds.splice(idx,1); else if (sim.thirds.length<8) sim.thirds.push(team);
   sim.r32={}; sim.r16={}; sim.qf={}; sim.sf={}; sim.final=null; sim.thirdPlace=null;
-  renderSimulate();
+  renderSimulate(); saveSimState();
 }
 function simPickWinner(round, idx, team) {
   if (sim[round][idx]===team) delete sim[round][idx]; else sim[round][idx]=team;
-  // Limpiar downstream
   if (round==='r32') {
     const r16i=R32_TO_R16[idx]; if(r16i!==undefined){delete sim.r16[r16i]; const qfi=R16_TO_QF[r16i]; if(qfi!==undefined){delete sim.qf[qfi]; const sfi=QF_TO_SF[qfi]; if(sfi!==undefined) delete sim.sf[sfi];}}
     sim.final=null; sim.thirdPlace=null;
@@ -2300,17 +1731,17 @@ function simPickWinner(round, idx, team) {
     const sfi=QF_TO_SF[idx]; if(sfi!==undefined) delete sim.sf[sfi];
     sim.final=null; sim.thirdPlace=null;
   } else if (round==='sf') { sim.final=null; sim.thirdPlace=null; }
-  renderSimulate();
+  renderSimulate(); saveSimState();
 }
 function simGoStep(step) { sim.step=step; renderSimulate(); }
 function simReset() {
   sim={step:'groups',groupRanks:{},thirds:[],r32:{},r16:{},qf:{},sf:{},final:null,thirdPlace:null};
-  renderSimulate();
+  renderSimulate(); saveSimState();
 }
 
 // ── MAIN RENDER ──
 function renderSimulate() {
-  const container = document.getElementById('simulate-content');
+  const container = document.getElementById('predictions-content');
   if (!container) return;
   const STEPS=['groups','thirds','r32','r16','qf','sf','final'];
   const LBLS =['Grupos','Mej. 3°','32vos','Octavos','Cuartos','Semis','Final'];
