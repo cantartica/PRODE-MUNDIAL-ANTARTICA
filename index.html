@@ -741,11 +741,12 @@ function defaultData() {
   return {
     adminPassword: 'admin2026',
     groups: defaultGroups(),
-    realQualifiers: [],           // actual 16 R16 teams (admin-set)
-    teams,                        // actual match teams (admin-set)
-    results: {},                  // actual match results: { R16_0: {home,away,winner} }
+    realQualifiers: [],
+    teams,
+    results: {},
     players: [],
     predictions: {},
+    referrals: {},   // { referredPlayerId: referrerId }
   };
 }
 
@@ -774,7 +775,13 @@ let currentPlayer = null;
 let isAdmin = false;
 let currentPage = 'predictions';
 let currentStep = 0;
-let draft = {};  // working copy of player's predictions
+let draft = {};
+
+// Capture referral code from URL on load
+const REFERRAL_PARAM = new URLSearchParams(window.location.search).get('ref') || '';
+if (REFERRAL_PARAM) sessionStorage.setItem('pending_ref', REFERRAL_PARAM);
+
+const REFERRAL_BONUS = 5; // pts per referred player who registered
 
 // ════════════════════════════════════════════════════
 // PREDICTION HELPERS
@@ -854,6 +861,7 @@ function loginPlayer() {
   if (phoneConflict) { showWelcomeError(`El WhatsApp ${phone} ya está registrado por ${phoneConflict.name}.`); return; }
   const emailConflict = data.players.find(p => p.email?.toLowerCase() === email.toLowerCase() && p.id !== (player?.id));
   if (emailConflict) { showWelcomeError(`El email ${email} ya está registrado por ${emailConflict.name}.`); return; }
+  const isNew = !player;
   if (!player) {
     player = { id: crypto.randomUUID(), name, phone, email, profile, wantsList };
     data.players.push(player);
@@ -862,6 +870,15 @@ function loginPlayer() {
     player.email = email;
     player.profile = profile;
     player.wantsList = wantsList;
+  }
+  // Link referral (only for new players, only if referrer exists and isn't self)
+  if (isNew) {
+    const refId = sessionStorage.getItem('pending_ref');
+    if (refId && refId !== player.id && data.players.find(p => p.id === refId)) {
+      if (!data.referrals) data.referrals = {};
+      data.referrals[player.id] = refId;
+      sessionStorage.removeItem('pending_ref');
+    }
   }
   saveData();
   currentPlayer = player;
@@ -1030,15 +1047,16 @@ function renderRules() {
       ${[
         ['🎯','Priorizá acertar al campeón — son 10 puntos de bonus más los puntos de los partidos.'],
         ['⚠️','Máximo 3 equipos del mismo grupo pueden clasificar (2 directos + 1 mejor tercero).'],
-        ['💾','Guardá tus predicciones antes de cerrar. Podés editarlas hasta que el admin cargue los resultados.'],
-        ['📤','Para jugar desde otro dispositivo, exportá tu código desde el menú y compartíselo al admin.'],
+        ['📲',`Invitá a un colega con tu link personal y ganás +${REFERRAL_BONUS} pts por cada uno que se registre.`],
+        ['⏰','Las predicciones cierran el 4 de julio antes del inicio de Octavos. ¡Completá tu bracket a tiempo!'],
       ].map(([icon,text]) => `
         <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;background:var(--surface2);border-radius:8px">
           <span style="font-size:1.1rem;flex-shrink:0">${icon}</span>
           <span class="text-sm text-2">${text}</span>
         </div>`).join('')}
     </div>
-  </div>`;
+  </div>
+  ${inviteCard()}`;
 }
 
 function goStep(s) { currentStep = s; renderPredictions(); }
@@ -1151,7 +1169,13 @@ function playerStats(playerId) {
     }
   }
 
-  return { pts, exact, winners, qualBonus, advBonusPts, matchesPlayed };
+  // Referral bonus
+  const referrals = data.referrals || {};
+  const refCount = Object.values(referrals).filter(rid => rid === playerId).length;
+  const refBonus = refCount * REFERRAL_BONUS;
+  pts += refBonus;
+
+  return { pts, exact, winners, qualBonus, advBonusPts, matchesPlayed, refBonus, refCount };
 }
 
 // ════════════════════════════════════════════════════
@@ -1201,6 +1225,7 @@ function renderPredictions() {
     ${currentStep < STEPS.length-1 ? `<button class="btn btn-primary" onclick="goStep(${currentStep+1})">Continuar →</button>` : `<span></span>`}
   </div>`;
 
+  html += inviteCard();
   container.innerHTML = html;
   updateSaveProgress();
 }
@@ -1625,13 +1650,13 @@ function renderLeaderboard() {
     html += `<div class="empty-state"><div class="empty-icon">🏆</div><p>No hay jugadores registrados.</p></div>`;
   } else {
     html += `<div class="card"><table class="lb-table"><thead><tr>
-      <th>#</th><th>Jugador</th><th>Total</th><th>Base</th><th>Bonus Clas.</th><th>Bonus Avance ★</th><th>Exactos</th>
+      <th>#</th><th>Jugador</th><th>Total</th><th>Base</th><th>Clas.</th><th>Avance</th><th>Referidos 📲</th>
     </tr></thead><tbody>`;
     rows.forEach((p, i) => {
       const rank = i+1;
       const cls = rank===1?'r1':rank===2?'r2':rank===3?'r3':'';
       const emoji = rank===1?'🥇':rank===2?'🥈':rank===3?'🥉':rank;
-      const basePts = p.stats.pts - p.stats.qualBonus - p.stats.advBonusPts;
+      const basePts = p.stats.pts - p.stats.qualBonus - p.stats.advBonusPts - (p.stats.refBonus||0);
       html += `<tr>
         <td class="rank-cell ${cls}">${emoji}</td>
         <td class="player-cell">${escHtml(p.name)}</td>
@@ -1639,11 +1664,12 @@ function renderLeaderboard() {
         <td class="text-sm text-2">${basePts}</td>
         <td class="text-sm" style="color:var(--accent2)">${p.stats.qualBonus>0?'+'+p.stats.qualBonus:'—'}</td>
         <td class="text-sm" style="color:var(--gold)">${p.stats.advBonusPts>0?'+'+p.stats.advBonusPts:'—'}</td>
-        <td class="text-sm text-2">${p.stats.exact}/${p.stats.matchesPlayed}</td>
+        <td class="text-sm" style="color:#a78bfa">${p.stats.refCount>0?`+${p.stats.refBonus} (${p.stats.refCount})` :'—'}</td>
       </tr>`;
     });
     html += `</tbody></table></div>`;
   }
+  html += inviteCard();
   container.innerHTML = html;
   updateStatusPts();
 }
@@ -1951,8 +1977,36 @@ function exportLeads() {
   });
 }
 
+function inviteCard() {
+  if (isAdmin) return '';
+  const referrals = data.referrals || {};
+  const myRefs = Object.values(referrals).filter(rid => rid === currentPlayer?.id).length;
+  const refNames = Object.entries(referrals)
+    .filter(([,rid]) => rid === currentPlayer?.id)
+    .map(([refId]) => data.players.find(p => p.id === refId)?.name || '')
+    .filter(Boolean);
+  return `<div style="background:linear-gradient(135deg,rgba(0,82,160,.25),rgba(0,158,226,.15));border:1px solid rgba(88,192,236,.3);border-radius:12px;padding:16px;margin-top:16px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:1.4rem;flex-shrink:0">📲</span>
+      <div>
+        <div style="font-weight:700;font-size:.92rem">Invitá a un colega</div>
+        <div style="font-size:.75rem;color:var(--text2);line-height:1.4">Ganá <strong style="color:#fbbf24">+${REFERRAL_BONUS} pts</strong> por cada colega que se registre con tu link</div>
+      </div>
+    </div>
+    ${myRefs > 0 ? `<div style="background:rgba(88,192,236,.1);border-radius:8px;padding:8px 12px;font-size:.78rem">
+      <span style="color:var(--accent);font-weight:700">+${myRefs * REFERRAL_BONUS} pts ganados</span>
+      <span style="color:var(--text2)"> por ${myRefs} colega${myRefs>1?'s':''} registrado${myRefs>1?'s':''}: ${escHtml(refNames.join(', '))}</span>
+    </div>` : ''}
+    <button class="btn btn-primary btn-full" onclick="shareInvite()" style="font-size:.85rem">
+      🔗 Copiar mi link personal
+    </button>
+  </div>`;
+}
+
 function shareInvite() {
-  const url = window.location.href.split('?')[0];
+  const base = window.location.href.split('?')[0];
+  const refParam = currentPlayer && !isAdmin ? `?ref=${currentPlayer.id}` : '';
+  const url = base + refParam;
   const text = `⚽🏆 *Prode Mundial 2026 — Comercial Antartica*\n\n¡Predecí los resultados y ganá *$300.000 en módulos de pantalla*!\n\nInscripciones abiertas hasta el 4 de julio.\n👉 ${url}`;
   if (navigator.share) {
     navigator.share({ title: 'Prode Mundial 2026', text, url }).catch(() => {});
