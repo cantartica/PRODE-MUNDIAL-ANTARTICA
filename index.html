@@ -1745,12 +1745,15 @@ function renderSimulate() {
         ${LBLS[i]}</div>`).join('')}
     </div>
   </div>`;
-  if      (sim.step==='groups')  html += renderSimGroups();
-  else if (sim.step==='thirds')  html += renderSimThirds();
-  else if (sim.step==='r32') html += renderSimRound('r32','Ronda de 32 (P73–P88)',16,simGetR32Team,simGetR32Label,'thirds');
-  else if (sim.step==='r16') html += renderSimRound('r16','Octavos de Final (P89–P96)',8,simGetR16Team,simGetR16Label,'r32');
-  else if (sim.step==='qf')  html += renderSimRound('qf','Cuartos de Final (P97–P100)',4,simGetQFTeam,simGetQFLabel,'r16');
-  else if (sim.step==='sf')  html += renderSimRound('sf','Semifinales (P101–P102)',2,simGetSFTeam,simGetSFLabel,'qf');
+  const noPtsBanner = `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:8px;margin-bottom:10px;font-size:.74rem;color:var(--text2)">⚙️ <span>Esta etapa <strong>no suma puntos</strong> — sirve para armar el bracket.</span></div>`;
+  const ptsBanner  = `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(88,192,236,.08);border:1px solid rgba(88,192,236,.25);border-radius:8px;margin-bottom:10px;font-size:.74rem;color:var(--accent)">⭐ <span><strong>¡Acá empiezan los puntos!</strong> Cada equipo que acertés en esta ronda suma +1 pt.</span></div>`;
+  const ptsBannerN = (pts) => `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(88,192,236,.08);border:1px solid rgba(88,192,236,.25);border-radius:8px;margin-bottom:10px;font-size:.74rem;color:var(--accent)">⭐ <span>Cada equipo acertado en esta ronda suma <strong>+${pts} pts</strong>.</span></div>`;
+  if      (sim.step==='groups')  html += noPtsBanner + renderSimGroups();
+  else if (sim.step==='thirds')  html += noPtsBanner + renderSimThirds();
+  else if (sim.step==='r32') html += noPtsBanner + renderSimRound('r32','Ronda de 32 (P73–P88)',16,simGetR32Team,simGetR32Label,'thirds');
+  else if (sim.step==='r16') html += ptsBanner  + renderSimRound('r16','Octavos de Final (P89–P96)',8,simGetR16Team,simGetR16Label,'r32');
+  else if (sim.step==='qf')  html += ptsBannerN(2) + renderSimRound('qf','Cuartos de Final (P97–P100)',4,simGetQFTeam,simGetQFLabel,'r16');
+  else if (sim.step==='sf')  html += ptsBannerN(3) + renderSimRound('sf','Semifinales (P101–P102)',2,simGetSFTeam,simGetSFLabel,'qf');
   else if (sim.step==='final') html += renderSimFinal();
   container.innerHTML = html;
 }
