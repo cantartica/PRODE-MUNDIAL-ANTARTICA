@@ -590,6 +590,26 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
       </button>
     </div>
 
+    <div class="divider" style="cursor:pointer;user-select:none" onclick="toggleRecovery()">
+      ¿olvidaste tus datos? <span id="recovery-toggle-icon">▼</span>
+    </div>
+    <div id="recovery-section" class="hidden" style="margin-bottom:16px">
+      <div class="card" style="margin-bottom:10px">
+        <div style="font-size:.8rem;font-weight:700;color:var(--text);margin-bottom:8px">Recuperar con tu número de WhatsApp</div>
+        <div style="font-size:.75rem;color:var(--text2);margin-bottom:10px">Ingresá el número que registraste y te volvemos a cargar tu prode.</div>
+        <div style="display:flex;gap:8px">
+          <input id="recovery-phone-inp" class="form-input" type="tel" placeholder="Ej: 11 2345-6789" style="flex:1">
+          <button class="btn btn-accent" onclick="recoverByPhone()" style="white-space:nowrap">Buscar</button>
+        </div>
+        <p id="recovery-error" class="hidden" style="color:var(--red);font-size:.75rem;margin-top:8px"></p>
+      </div>
+      <div style="text-align:center;font-size:.75rem;color:var(--text2);margin-bottom:8px">¿Tampoco recordás el número?</div>
+      <a href="https://wa.me/5491164195442?text=Hola!%20Me%20olvidé%20mis%20datos%20del%20Prode%20Mundial%202026%20y%20necesito%20ayuda%20para%20recuperarlos."
+        target="_blank" class="btn btn-secondary btn-full" style="text-decoration:none;display:block;text-align:center">
+        💬 Contactanos por WhatsApp
+      </a>
+    </div>
+
     <div class="divider">administrador</div>
     <div class="form-group">
       <label class="form-label">Contraseña de administrador</label>
@@ -821,6 +841,31 @@ function loginExisting() {
   if (!player) { showWelcomeError('Email o WhatsApp incorrecto. ¿Todavía no te registraste?'); return; }
   currentPlayer = player;
   isAdmin = false;
+  enterApp();
+}
+
+function toggleRecovery() {
+  const sec = document.getElementById('recovery-section');
+  const icon = document.getElementById('recovery-toggle-icon');
+  const hidden = sec.classList.toggle('hidden');
+  icon.textContent = hidden ? '▼' : '▲';
+}
+
+function recoverByPhone() {
+  const phone = document.getElementById('recovery-phone-inp').value.trim();
+  const errEl = document.getElementById('recovery-error');
+  if (!phone) { errEl.textContent = 'Ingresá tu número.'; errEl.classList.remove('hidden'); return; }
+  const player = data.players.find(p => p.phone === phone);
+  if (!player) { errEl.textContent = 'No encontramos ningún jugador con ese número.'; errEl.classList.remove('hidden'); return; }
+  errEl.classList.add('hidden');
+  currentPlayer = player;
+  isAdmin = false;
+  const saved = (data.predictions[player.id]||{}).sim;
+  if (saved) {
+    sim = { step:'groups', groupRanks:{}, thirds:[], r32:{}, r16:{}, qf:{}, sf:{}, final:null, thirdPlace:null, ...saved };
+  } else {
+    sim = { step:'groups', groupRanks:{}, thirds:[], r32:{}, r16:{}, qf:{}, sf:{}, final:null, thirdPlace:null };
+  }
   enterApp();
 }
 
