@@ -612,6 +612,7 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
       <button class="nav-btn active" id="nav-predictions" onclick="showPage('predictions')">⚽ Prode</button>
       <button class="nav-btn" id="nav-leaderboard" onclick="showPage('leaderboard')">📊 Tabla</button>
       <button class="nav-btn" id="nav-rules" onclick="showPage('rules')">📖 Reglas</button>
+      <button class="nav-btn" id="nav-simulate" onclick="showPage('simulate')">🔮 Simular</button>
       <button class="nav-btn hidden" id="nav-admin" onclick="showPage('admin')">⚙️ Admin</button>
     </nav>
   </header>
@@ -631,6 +632,7 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
     <div id="page-leaderboard" class="hidden"><div id="leaderboard-content"></div></div>
     <div id="page-rules" class="hidden"><div id="rules-content"></div></div>
     <div id="page-admin" class="hidden"><div id="admin-content"></div></div>
+    <div id="page-simulate" class="hidden"><div id="simulate-content"></div></div>
   </main>
   <div id="save-bar">
     <span class="save-progress" id="save-progress-text"></span>
@@ -1014,7 +1016,7 @@ function enterApp() {
 
 function showPage(page) {
   currentPage = page;
-  ['predictions','leaderboard','rules','admin'].forEach(p => {
+  ['predictions','leaderboard','rules','admin','simulate'].forEach(p => {
     document.getElementById(`page-${p}`).classList.toggle('hidden', p !== page);
     const btn = document.getElementById(`nav-${p}`);
     if (btn) btn.classList.toggle('active', p === page);
@@ -1024,6 +1026,7 @@ function showPage(page) {
   else if (page === 'leaderboard') renderLeaderboard();
   else if (page === 'rules') renderRules();
   else if (page === 'admin') renderAdmin();
+  else if (page === 'simulate') renderSimulate();
 }
 
 function renderRules() {
@@ -2146,6 +2149,368 @@ function resetData() {
   if (!confirm('⚠️ Esto borra TODO. ¿Seguro?')) return;
   if (!confirm('¿Confirmás el reset?')) return;
   data = defaultData(); saveData(); showToast('🗑 Datos reseteados'); renderAdmin();
+}
+
+// ════════════════════════════════════════════════════
+// SIMULATION
+// ════════════════════════════════════════════════════
+
+// Round of 32 bracket – FIFA 2026 format
+// Groups arranged in 4 quadrants (each quadrant → 1 QF path):
+// Q1: Groups A,B,C,D  |  Q2: Groups E,F,G,H  |  Q3: Groups I,J,K,L  |  Q4: 8 best thirds
+const SIM_R32 = [
+  // Quadrant 1
+  { id:0,  home:'1A', away:'2B' },  // M49
+  { id:1,  home:'1C', away:'2D' },  // M50
+  { id:2,  home:'2A', away:'1B' },  // M51
+  { id:3,  home:'2C', away:'1D' },  // M52
+  // Quadrant 2
+  { id:4,  home:'1E', away:'2F' },  // M53
+  { id:5,  home:'1G', away:'2H' },  // M54
+  { id:6,  home:'2E', away:'1F' },  // M55
+  { id:7,  home:'2G', away:'1H' },  // M56
+  // Quadrant 3
+  { id:8,  home:'1I', away:'2J' },  // M57
+  { id:9,  home:'1K', away:'2L' },  // M58
+  { id:10, home:'2I', away:'1J' },  // M59
+  { id:11, home:'2K', away:'1L' },  // M60
+  // Quadrant 4 – Best Thirds
+  { id:12, home:'3rd#1', away:'3rd#2' }, // M61
+  { id:13, home:'3rd#3', away:'3rd#4' }, // M62
+  { id:14, home:'3rd#5', away:'3rd#6' }, // M63
+  { id:15, home:'3rd#7', away:'3rd#8' }, // M64
+];
+// R16 (Octavos): pairs (0,1),(2,3),(4,5),(6,7),(8,9),(10,11),(12,13),(14,15) → 8 matches
+// QF: pairs of R16 (0,1),(2,3),(4,5),(6,7) → 4 matches
+// SF: pairs of QF (0,1),(2,3) → 2 matches
+
+let sim = {
+  step: 'groups',
+  groupRanks: {},   // { 'A': { 1:'México', 2:'Corea del Sur', 3:'Chequia' }, … }
+  thirds: [],       // 8 team names selected as best thirds
+  r32: {},          // { matchIdx: teamName }
+  r16: {}, qf: {}, sf: {},
+  final: null, thirdPlace: null,
+};
+
+function simResolvePos(pos) {
+  if (pos.startsWith('3rd#')) return sim.thirds[parseInt(pos.slice(4)) - 1] || '';
+  const rank = parseInt(pos[0]);
+  const grp  = pos[1];
+  return (sim.groupRanks[grp] || {})[rank] || '';
+}
+function simGetR32Team(mi, side)  { const m = SIM_R32[mi]; return simResolvePos(side==='home'?m.home:m.away); }
+function simGetR16Team(mi, side)  { return sim.r32[mi*2 + (side==='home'?0:1)] || ''; }
+function simGetQFTeam(mi, side)   { return sim.r16[mi*2 + (side==='home'?0:1)] || ''; }
+function simGetSFTeam(mi, side)   { return sim.qf[mi*2  + (side==='home'?0:1)] || ''; }
+
+function simSetRank(grp, rank, team) {
+  if (!sim.groupRanks[grp]) sim.groupRanks[grp] = {};
+  if ((sim.groupRanks[grp][rank] || '') === team) return;
+  // Remove team from any other rank in this group
+  for (const r of [1,2,3]) if (sim.groupRanks[grp][r] === team && r !== rank) delete sim.groupRanks[grp][r];
+  if (team) sim.groupRanks[grp][rank] = team;
+  else delete sim.groupRanks[grp][rank];
+  // Reset all downstream
+  sim.thirds = []; sim.r32 = {}; sim.r16 = {}; sim.qf = {}; sim.sf = {};
+  sim.final = null; sim.thirdPlace = null;
+  renderSimulate();
+}
+
+function simToggleThird(team) {
+  const idx = sim.thirds.indexOf(team);
+  if (idx >= 0) sim.thirds.splice(idx, 1);
+  else if (sim.thirds.length < 8) sim.thirds.push(team);
+  sim.r32 = {}; sim.r16 = {}; sim.qf = {}; sim.sf = {};
+  sim.final = null; sim.thirdPlace = null;
+  renderSimulate();
+}
+
+function simPickWinner(round, idx, team) {
+  const prev = sim[round][idx];
+  if (prev === team) { delete sim[round][idx]; }
+  else { sim[round][idx] = team; }
+  // Clear downstream
+  if (round === 'r32') {
+    const r16i = Math.floor(idx/2); delete sim.r16[r16i];
+    const qfi  = Math.floor(r16i/2); delete sim.qf[qfi];
+    const sfi  = Math.floor(qfi/2);  delete sim.sf[sfi];
+    sim.final = null; sim.thirdPlace = null;
+  } else if (round === 'r16') {
+    const qfi = Math.floor(idx/2); delete sim.qf[qfi];
+    const sfi = Math.floor(qfi/2);  delete sim.sf[sfi];
+    sim.final = null; sim.thirdPlace = null;
+  } else if (round === 'qf') {
+    const sfi = Math.floor(idx/2); delete sim.sf[sfi];
+    sim.final = null; sim.thirdPlace = null;
+  } else if (round === 'sf') {
+    sim.final = null; sim.thirdPlace = null;
+  }
+  renderSimulate();
+}
+
+function simGoStep(step) { sim.step = step; renderSimulate(); }
+
+function simReset() {
+  sim = { step:'groups', groupRanks:{}, thirds:[], r32:{}, r16:{}, qf:{}, sf:{}, final:null, thirdPlace:null };
+  renderSimulate();
+}
+
+// ── MAIN RENDER ──
+function renderSimulate() {
+  const container = document.getElementById('simulate-content');
+  if (!container) return;
+  const STEPS       = ['groups','thirds','r32','r16','qf','sf','final'];
+  const STEP_LABELS = ['Grupos','Mej. 3°','32vos','Octavos','Cuartos','Semis','Final'];
+  const si = STEPS.indexOf(sim.step);
+
+  let html = `<div style="margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-weight:800;font-size:.88rem;color:var(--accent)">Simulador Fase de Grupos</span>
+      <button class="btn btn-sm btn-secondary" onclick="simReset()">↺ Reiniciar</button>
+    </div>
+    <div style="display:flex;gap:3px">
+      ${STEPS.map((s,i)=>`<div onclick="simGoStep('${s}')" style="flex:1;min-width:0;text-align:center;
+        padding:5px 2px;border-radius:6px;font-size:.6rem;font-weight:700;cursor:pointer;
+        ${i===si?'background:var(--accent);color:#fff':i<si?'background:rgba(88,192,236,.18);color:var(--accent)':'background:var(--surface2);color:var(--text2)'}">
+        ${STEP_LABELS[i]}</div>`).join('')}
+    </div>
+  </div>`;
+
+  if (sim.step==='groups')  html += renderSimGroups();
+  else if (sim.step==='thirds') html += renderSimThirds();
+  else if (sim.step==='r32') html += renderSimRound('r32','Ronda de 32 — Dieciseisavos',16,simGetR32Team,'thirds');
+  else if (sim.step==='r16') html += renderSimRound('r16','Octavos de Final',8,simGetR16Team,'r32');
+  else if (sim.step==='qf')  html += renderSimRound('qf','Cuartos de Final',4,simGetQFTeam,'r16');
+  else if (sim.step==='sf')  html += renderSimRound('sf','Semifinales',2,simGetSFTeam,'qf');
+  else if (sim.step==='final') html += renderSimFinal();
+
+  container.innerHTML = html;
+}
+
+// ── GROUPS ──
+function renderSimGroups() {
+  const groups = data.groups || defaultGroups();
+  const done = groups.filter(g=>{ const r=sim.groupRanks[g.name]||{}; return r[1]&&r[2]&&r[3]; }).length;
+  const allDone = done === groups.length;
+
+  let html = `<div style="font-size:.78rem;color:var(--text2);margin-bottom:10px">
+    Asigná 1°, 2° y 3° en cada grupo. El 4° queda eliminado. <strong style="color:var(--accent)">${done}/12 grupos completos.</strong>
+  </div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">`;
+
+  for (const g of groups) {
+    const ranks = sim.groupRanks[g.name] || {};
+    const ranked = [ranks[1],ranks[2],ranks[3]].filter(Boolean);
+    const teams  = g.teams.map(t=>normTeam(t));
+    const medals = ['🥇','🥈','🥉'];
+
+    html += `<div class="card" style="padding:8px 10px">
+      <div style="font-weight:800;font-size:.75rem;color:var(--accent);margin-bottom:6px;letter-spacing:.06em">GRUPO ${g.name}</div>`;
+
+    // Rank slots
+    for (let rk=1; rk<=3; rk++) {
+      const sel = ranks[rk]; const code = sel ? teamFlagCode(sel) : '';
+      html += `<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px">
+        <span style="font-size:.72rem;width:18px;text-align:center">${medals[rk-1]}</span>
+        <div style="flex:1;background:var(--surface2);border-radius:5px;padding:3px 7px;font-size:.72rem;
+          ${sel?'border:1px solid var(--accent);color:var(--text)':'border:1px dashed rgba(88,192,236,.2);color:var(--text2)'}">
+          ${sel ? `${flagImg(code,13)} ${escHtml(sel)}<button onclick="simSetRank('${escJs(g.name)}',${rk},'')"
+            style="float:right;background:none;border:none;color:var(--text2);cursor:pointer;font-size:.65rem;line-height:1;padding:0 2px">✕</button>`
+            : `${rk}° lugar`}
+        </div>
+      </div>`;
+    }
+
+    // Unranked team buttons
+    const unranked = teams.filter(t=>!ranked.includes(t.name));
+    const nextRank = !ranks[1]?1:!ranks[2]?2:!ranks[3]?3:null;
+    html += `<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:3px">`;
+    for (const t of unranked) {
+      if (nextRank !== null) {
+        html += `<button onclick="simSetRank('${escJs(g.name)}',${nextRank},'${escJs(t.name)}')"
+          style="display:flex;align-items:center;gap:3px;background:var(--surface3);border:1px solid var(--border);
+          color:var(--text);border-radius:5px;padding:2px 7px;font-size:.68rem;cursor:pointer;font-family:Poppins,sans-serif">
+          ${flagImg(t.code,13)} ${escHtml(t.name)}</button>`;
+      } else {
+        html += `<div style="display:flex;align-items:center;gap:3px;background:rgba(0,0,0,.15);
+          border:1px solid rgba(88,192,236,.08);color:var(--text2);border-radius:5px;padding:2px 7px;font-size:.68rem;opacity:.45">
+          ${flagImg(t.code,13)} ${escHtml(t.name)}</div>`;
+      }
+    }
+    html += `</div></div>`;
+  }
+
+  html += `</div>`;
+  if (allDone) html += `<button class="btn btn-primary btn-full" onclick="simGoStep('thirds')">Elegir mejores 3° →</button>`;
+  else html += `<div style="text-align:center;color:var(--text2);font-size:.8rem;padding:10px 0">Completá los ${12-done} grupos restantes para continuar</div>`;
+  return html;
+}
+
+// ── THIRDS ──
+function renderSimThirds() {
+  const groups = data.groups || defaultGroups();
+  const allThirds = groups.map(g=>({ team:(sim.groupRanks[g.name]||{})[3], group:g.name })).filter(x=>x.team);
+  const sel = sim.thirds.length;
+
+  let html = `<button onclick="simGoStep('groups')" class="btn btn-sm btn-secondary" style="margin-bottom:10px">← Grupos</button>
+  <div class="card" style="margin-bottom:10px;padding:10px 14px">
+    <div style="font-weight:700;font-size:.88rem;margin-bottom:3px">Mejores 8 terceros</div>
+    <div style="font-size:.78rem;color:var(--text2)">Elegí exactamente 8 equipos que terminaron 3° y clasifican.
+      <strong style="color:var(--accent)">&nbsp;${sel}/8 seleccionados.</strong></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:14px">`;
+
+  for (const { team, group } of allThirds) {
+    const isSel = sim.thirds.includes(team);
+    const code  = teamFlagCode(team);
+    const canSel = isSel || sel < 8;
+    html += `<button onclick="${canSel?`simToggleThird('${escJs(team)}')`:'void 0'}"
+      style="display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:9px;text-align:left;
+      cursor:${canSel?'pointer':'not-allowed'};font-family:Poppins,sans-serif;font-size:.78rem;
+      border:2px solid ${isSel?'var(--accent)':'var(--border)'};
+      background:${isSel?'rgba(88,192,236,.1)':'var(--surface2)'}">
+      ${flagImg(code,20)}
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:${isSel?700:400};color:${isSel?'var(--text)':'var(--text2)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(team)}</div>
+        <div style="font-size:.65rem;color:var(--text2)">3° Grupo ${group}</div>
+      </div>
+      ${isSel?'<span style="color:var(--accent);font-weight:800;font-size:.85rem">✓</span>':''}
+    </button>`;
+  }
+
+  html += `</div>`;
+  if (sel===8) html += `<button class="btn btn-primary btn-full" onclick="simGoStep('r32')">Ver Ronda de 32 →</button>`;
+  else html += `<div style="text-align:center;color:var(--text2);font-size:.8rem;padding:10px 0">Seleccioná ${8-sel} más para continuar</div>`;
+  return html;
+}
+
+// ── BRACKET ROUNDS (R32 / R16 / QF / SF) ──
+function renderSimRound(round, title, count, getTeamFn, prevStep) {
+  const NEXT = { r32:'r16', r16:'qf', qf:'sf', sf:'final' };
+  const NEXT_LABEL = { r32:'Octavos de Final', r16:'Cuartos de Final', qf:'Semifinales', sf:'Final' };
+  const Q_SIZE  = { r32:4, r16:2, qf:4, sf:2 }; // matches per visual group
+  const Q_LABEL = {
+    r32: ['Cuadrante 1 — Grupos A·B·C·D', 'Cuadrante 2 — Grupos E·F·G·H', 'Cuadrante 3 — Grupos I·J·K·L', 'Cuadrante 4 — Mejores Terceros'],
+    r16: ['→ QF Cuadrante 1','→ QF Cuadrante 2','→ QF Cuadrante 3','→ QF Cuadrante 4'],
+    qf:  [''], sf: [''],
+  };
+  const qSize = Q_SIZE[round] || count;
+  const done = Object.keys(sim[round]).length;
+
+  let html = `<button onclick="simGoStep('${prevStep}')" class="btn btn-sm btn-secondary" style="margin-bottom:10px">← Atrás</button>
+  <div class="card" style="margin-bottom:10px;padding:10px 14px">
+    <div style="font-weight:800;font-size:.88rem;color:var(--accent)">${title}</div>
+    <div style="font-size:.75rem;color:var(--text2);margin-top:2px">${done}/${count} partidos definidos — hacé clic en el equipo ganador</div>
+  </div>`;
+
+  for (let qi = 0; qi < Math.ceil(count/qSize); qi++) {
+    const label = (Q_LABEL[round]||[])[qi];
+    if (label) html += `<div style="font-size:.68rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin:10px 0 5px;padding-left:2px">${label}</div>`;
+    for (let mi = qi*qSize; mi < Math.min((qi+1)*qSize, count); mi++) {
+      const home = getTeamFn(mi,'home');
+      const away = getTeamFn(mi,'away');
+      const winner = sim[round][mi];
+      const hCode = teamFlagCode(home||'');
+      const aCode = teamFlagCode(away||'');
+      const matchNum = round==='r32' ? `M${49+mi}` : '';
+
+      html += `<div style="background:var(--surface2);border-radius:9px;margin-bottom:7px;overflow:hidden;
+        border:1px solid ${winner?'rgba(88,192,236,.35)':'var(--border)'}">
+        ${matchNum ? `<div style="font-size:.6rem;color:var(--text2);padding:3px 10px 0;font-weight:600">${matchNum}</div>` : ''}
+        <div style="display:flex;align-items:stretch">
+          <button onclick="${home?`simPickWinner('${round}',${mi},'${escJs(home)}')`:'void 0'}"
+            style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:10px 7px;
+            background:${winner===home?'rgba(88,192,236,.18)':'transparent'};border:none;
+            cursor:${home?'pointer':'default'};font-family:Poppins,sans-serif;transition:background .1s">
+            ${home?`${flagImg(hCode,18)}<span style="font-size:.75rem;font-weight:${winner===home?700:400};color:${winner===home?'var(--text)':'var(--text2)'};max-width:80px;text-align:center;line-height:1.2">${escHtml(home)}</span>`
+                  :`<span style="color:var(--text2);font-size:.7rem">Por definir</span>`}
+            ${winner===home?'<span style="color:var(--accent);font-size:.8rem">✓</span>':''}
+          </button>
+          <div style="display:flex;align-items:center;padding:0 8px;font-size:.68rem;font-weight:800;color:var(--text2);flex-shrink:0">VS</div>
+          <button onclick="${away?`simPickWinner('${round}',${mi},'${escJs(away)}')`:'void 0'}"
+            style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:10px 7px;
+            background:${winner===away?'rgba(88,192,236,.18)':'transparent'};border:none;
+            cursor:${away?'pointer':'default'};font-family:Poppins,sans-serif;transition:background .1s">
+            ${winner===away?'<span style="color:var(--accent);font-size:.8rem">✓</span>':''}
+            ${away?`<span style="font-size:.75rem;font-weight:${winner===away?700:400};color:${winner===away?'var(--text)':'var(--text2)'};max-width:80px;text-align:center;line-height:1.2">${escHtml(away)}</span>${flagImg(aCode,18)}`
+                  :`<span style="color:var(--text2);font-size:.7rem">Por definir</span>`}
+          </button>
+        </div>
+      </div>`;
+    }
+  }
+
+  if (done===count && NEXT[round])
+    html += `<button class="btn btn-primary btn-full mt-3" onclick="simGoStep('${NEXT[round]}')">${NEXT_LABEL[round]} →</button>`;
+
+  return html;
+}
+
+// ── FINAL ──
+function renderSimFinal() {
+  const finalist1 = sim.sf[0] || '';
+  const finalist2 = sim.sf[1] || '';
+  const champion  = sim.final;
+  const third     = sim.thirdPlace;
+
+  // SF losers (for 3rd place match)
+  const sf0h = simGetSFTeam(0,'home'), sf0a = simGetSFTeam(0,'away');
+  const sf1h = simGetSFTeam(1,'home'), sf1a = simGetSFTeam(1,'away');
+  const loser0 = finalist1 ? (finalist1===sf0h ? sf0a : sf0h) : '';
+  const loser1 = finalist2 ? (finalist2===sf1h ? sf1a : sf1h) : '';
+
+  let html = `<button onclick="simGoStep('sf')" class="btn btn-sm btn-secondary" style="margin-bottom:12px">← Semis</button>`;
+
+  // 3rd place
+  if (loser0 && loser1) {
+    html += `<div class="card" style="margin-bottom:14px">
+      <div style="font-weight:800;font-size:.82rem;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:9px">Partido por el 3° Puesto</div>
+      <div style="display:flex;gap:8px">
+        ${[loser0,loser1].map((t,i)=>{
+          const code=teamFlagCode(t); const isSel=third===t;
+          return `<button onclick="sim.thirdPlace='${escJs(t)}'; renderSimulate();"
+            style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:11px 8px;border-radius:9px;
+            background:${isSel?'rgba(88,192,236,.12)':'var(--surface2)'};border:2px solid ${isSel?'var(--accent)':'var(--border)'};
+            cursor:pointer;font-family:Poppins,sans-serif">
+            ${flagImg(code,26)}
+            <span style="font-size:.75rem;font-weight:${isSel?700:400};color:${isSel?'var(--text)':'var(--text2)'}">${escHtml(t)}</span>
+            ${isSel?'<span style="color:var(--accent)">🥉</span>':''}
+          </button>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Final
+  html += `<div class="card" style="border-top:3px solid var(--gold)">
+    <div style="font-weight:800;font-size:.95rem;color:var(--gold);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;text-align:center">🏆 FINAL MUNDIAL 2026</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      ${[finalist1,finalist2].map(t=>{
+        if (!t) return `<div style="flex:1;background:var(--surface2);border-radius:10px;padding:22px 10px;text-align:center;color:var(--text2);font-size:.78rem;border:2px solid var(--border)">Por definir</div>`;
+        const code=teamFlagCode(t); const isSel=champion===t;
+        return `<button onclick="sim.final='${escJs(t)}'; renderSimulate();"
+          style="flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;padding:16px 10px;border-radius:10px;
+          background:${isSel?'rgba(245,158,11,.15)':'var(--surface2)'};border:2px solid ${isSel?'var(--gold)':'var(--border)'};
+          cursor:pointer;font-family:Poppins,sans-serif">
+          ${flagImg(code,34)}
+          <span style="font-size:.82rem;font-weight:${isSel?800:500};color:${isSel?'var(--text)':'var(--text2)'}">${escHtml(t)}</span>
+          ${isSel?'<span style="font-size:1.1rem">🏆</span>':''}
+        </button>`;
+      }).join('')}
+    </div>
+  </div>`;
+
+  if (champion) {
+    html += `<div style="text-align:center;padding:22px 16px;margin-top:10px">
+      <div style="font-size:2.5rem;margin-bottom:10px">🏆</div>
+      <div style="font-size:1.15rem;font-weight:900;color:var(--gold);letter-spacing:-.02em">${escHtml(champion)}</div>
+      <div style="font-size:.78rem;color:var(--text2);margin-top:4px;letter-spacing:.06em;text-transform:uppercase">Campeón Mundial 2026</div>
+      ${third ? `<div style="margin-top:8px;font-size:.8rem;color:var(--text2)">🥉 Tercer puesto: <strong style="color:var(--text)">${escHtml(third)}</strong></div>` : ''}
+      <button class="btn btn-secondary btn-sm" onclick="simReset()" style="margin-top:18px">↺ Nueva simulación</button>
+    </div>`;
+  }
+
+  return html;
 }
 
 // ════════════════════════════════════════════════════
