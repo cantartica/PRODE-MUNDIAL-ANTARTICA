@@ -455,10 +455,18 @@ main { max-width: 860px; margin: 0 auto; padding: 16px 16px 90px; }
 </head>
 <body>
 
+<!-- LOADING -->
+<div id="screen-loading" style="position:fixed;inset:0;background:#242727;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:999">
+  <img src="logo-secundaria.png" style="width:120px;mix-blend-mode:screen;opacity:.9">
+  <div style="width:36px;height:36px;border:3px solid rgba(88,192,236,.2);border-top-color:#58C0EC;border-radius:50%;animation:spin .8s linear infinite"></div>
+  <p style="color:#a8c8d8;font-size:.8rem;font-family:'Poppins',sans-serif">Cargando datos…</p>
+</div>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
 <!-- ══════════════════════════════════════════════════
      WELCOME
 ══════════════════════════════════════════════════ -->
-<div id="screen-welcome">
+<div id="screen-welcome" class="hidden">
   <div class="welcome-card">
 
     <img src="logo-secundaria.png" alt="Comercial Antartica"
@@ -782,26 +790,41 @@ function defaultData() {
 }
 
 const STORAGE_KEY = 'prode_mundial_2026_v2';
+const FB_URL = 'https://prode-mundial-2026-8cbfc-default-rtdb.firebaseio.com/prode2026.json';
 
-function loadData() {
+function mergeWithDefaults(saved) {
+  const merged = Object.assign(defaultData(), saved);
+  if (!merged.groups || !Array.isArray(merged.groups) || merged.groups.length === 0)
+    merged.groups = defaultGroups();
+  return merged;
+}
+
+function loadLocalData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const d = defaultData();
-      const saved = JSON.parse(raw);
-      const merged = Object.assign(d, saved);
-      // migrate: if old format had pool[], replace with default groups
-      if (!merged.groups || !Array.isArray(merged.groups) || merged.groups.length === 0) {
-        merged.groups = defaultGroups();
-      }
-      return merged;
-    }
+    if (raw) return mergeWithDefaults(JSON.parse(raw));
   } catch(e) {}
   return defaultData();
 }
-function saveData() { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
 
-let data = loadData();
+async function loadRemoteData() {
+  const res = await fetch(FB_URL);
+  if (!res.ok) throw new Error('fetch failed');
+  const remote = await res.json();
+  if (!remote) return defaultData();
+  return mergeWithDefaults(remote);
+}
+
+function saveData() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  fetch(FB_URL, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }).catch(() => {});
+}
+
+let data = loadLocalData(); // populated async on init below
 let currentPlayer = null;
 let isAdmin = false;
 let currentPage = 'predictions';
@@ -2168,6 +2191,18 @@ function showToast(msg) {
 // Enter key handlers
 document.getElementById('player-name-inp').addEventListener('keydown', e => { if(e.key==='Enter') loginPlayer(); });
 document.getElementById('admin-pass-inp').addEventListener('keydown', e => { if(e.key==='Enter') loginAdmin(); });
+
+// ── INIT: load from Firebase, fall back to localStorage ──
+(async () => {
+  try {
+    data = await loadRemoteData();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); // sync cache
+  } catch(e) {
+    data = loadLocalData(); // offline fallback
+  }
+  document.getElementById('screen-loading').style.display = 'none';
+  document.getElementById('screen-welcome').classList.remove('hidden');
+})();
 </script>
 </body>
 </html>
