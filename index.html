@@ -1123,29 +1123,30 @@ function renderAdmin() {
     </div>
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <div class="card-title" style="margin-bottom:0">Leads registrados (${data.players.length})</div>
-        ${data.players.length > 0 ? `<button class="btn btn-sm btn-accent" onclick="exportLeads()">📋 Copiar leads</button>` : ''}
+        <div class="card-title" style="margin-bottom:0">Jugadores (${data.players.length})</div>
+        ${data.players.length > 0 ? `<button class="btn btn-sm btn-accent" onclick="exportJugadoresExcel()">⬇️ Exportar Excel</button>` : ''}
       </div>`;
     if (data.players.length === 0) {
       html += `<div class="empty-state"><div class="empty-icon">👥</div><p>Nadie se registró todavía.</p></div>`;
     } else {
-      const profileLabel = { tecnico:'🔧 Técnico', local:'🏪 Local', revendedor:'🔄 Revendedor', particular:'👤 Particular' };
-      html += `<div style="overflow-x:auto"><table class="lb-table" style="min-width:560px">
-        <thead><tr><th>Nombre</th><th>WhatsApp</th><th>Perfil</th><th>Lista</th><th>Prode</th><th></th></tr></thead><tbody>`;
-      data.players.forEach(p => {
-        const preds = data.predictions[p.id] || {};
-        const q = (preds.qualifiers||[]).length;
-        const matches = ROUNDS.reduce((s,r) => s + ((preds[r.id]||[]).filter(m=>m?.winner).length), 0);
+      const profileLabel = { tecnico:'Técnico', local:'Local', revendedor:'Revendedor', particular:'Particular' };
+      const sorted = [...data.players].sort((a,b) => playerStats(b.id).pts - playerStats(a.id).pts);
+      html += `<div style="overflow-x:auto"><table class="lb-table" style="min-width:700px">
+        <thead><tr><th>#</th><th>Nombre</th><th>WhatsApp</th><th>Email</th><th>Perfil</th><th>Lista</th><th>Pts</th><th>Campeón</th><th></th></tr></thead><tbody>`;
+      sorted.forEach((p, i) => {
+        const st = playerStats(p.id);
+        const psim = (data.predictions[p.id]||{}).sim||{};
+        const campeon = psim.final || '—';
         html += `<tr>
+          <td class="text-sm text-2">${i+1}</td>
           <td class="player-cell">${escHtml(p.name)}</td>
           <td class="text-sm" style="color:var(--accent)">${escHtml(p.phone||'—')}</td>
+          <td class="text-sm text-2">${escHtml(p.email||'—')}</td>
           <td class="text-sm text-2">${escHtml(profileLabel[p.profile||'']||p.profile||'—')}</td>
-          <td class="text-sm" style="color:${p.wantsList?'#fbbf24':'var(--text2)'}">${p.wantsList?'✓':'—'}</td>
-          <td class="text-sm text-2" style="white-space:nowrap">${q}/16 · ${matches} p.</td>
-          <td style="display:flex;gap:4px;flex-wrap:nowrap">
-            <button class="btn btn-sm btn-secondary" onclick="exportPlayerModal('${p.id}')">📤</button>
-            <button class="btn btn-sm btn-danger" onclick="removePlayer('${p.id}')">✕</button>
-          </td>
+          <td class="text-sm" style="color:${p.wantsList?'#fbbf24':'var(--text2)'}">${p.wantsList?'Sí':'No'}</td>
+          <td class="text-sm" style="font-weight:700;color:var(--accent)">${st.pts}</td>
+          <td class="text-sm text-2">${escHtml(campeon)}</td>
+          <td><button class="btn btn-sm btn-danger" onclick="removePlayer('${p.id}')">✕</button></td>
         </tr>`;
       });
       html += `</tbody></table></div>`;
@@ -1368,6 +1369,31 @@ function exportAll() {
   const blob = new Blob([JSON.stringify(data,null,2)], { type:'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = 'prode_2026_backup.json'; a.click();
+}
+
+function exportJugadoresExcel() {
+  const profileLabel = { tecnico:'Técnico', local:'Local', revendedor:'Revendedor', particular:'Particular' };
+  const sorted = [...data.players].sort((a,b) => playerStats(b.id).pts - playerStats(a.id).pts);
+  const rows = [['#','Nombre','WhatsApp','Email','Perfil','Quiere Lista','Puntos','Campeón','3er Puesto']];
+  sorted.forEach((p, i) => {
+    const st = playerStats(p.id);
+    const psim = (data.predictions[p.id]||{}).sim||{};
+    rows.push([
+      i+1,
+      p.name||'',
+      p.phone||'',
+      p.email||'',
+      profileLabel[p.profile||'']||p.profile||'',
+      p.wantsList ? 'Sí' : 'No',
+      st.pts,
+      psim.final||'',
+      psim.thirdPlace||'',
+    ]);
+  });
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'prode_mundial_2026.csv'; a.click();
 }
 
 function importAll() {
