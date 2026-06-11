@@ -1915,7 +1915,8 @@ function renderSimFinal() {
   let html=`<button onclick="simGoStep('sf')" class="btn btn-sm btn-secondary" style="margin-bottom:12px">← Semis</button>`;
   if (loser0&&loser1) {
     html += `<div class="card" style="margin-bottom:14px">
-      <div style="font-weight:800;font-size:.82rem;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:9px">3° Puesto · P103 · Miami 18/7</div>
+      <div style="font-weight:800;font-size:.82rem;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">3° Puesto · P103 · Miami 18/7</div>
+      <div style="font-size:.72rem;color:#f59e0b;margin-bottom:8px">⭐ Acertar el 3er puesto suma <strong>+5 pts</strong></div>
       <div style="display:flex;gap:8px">
         ${[loser0,loser1].map(t=>{
           const code=teamFlagCode(t),isSel=third===t;
@@ -1931,7 +1932,8 @@ function renderSimFinal() {
     </div>`;
   }
   html += `<div class="card" style="border-top:3px solid var(--gold)">
-    <div style="font-weight:800;font-size:.95rem;color:var(--gold);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;text-align:center">🏆 FINAL · P104 · Nueva York 19/7</div>
+    <div style="font-weight:800;font-size:.95rem;color:var(--gold);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;text-align:center">🏆 FINAL · P104 · Nueva York 19/7</div>
+    <div style="font-size:.72rem;color:#f59e0b;margin-bottom:12px;text-align:center">⭐ Acertar al Campeón suma <strong>+10 pts</strong></div>
     <div style="display:flex;gap:8px;margin-bottom:10px">
       ${[finalist1,finalist2].map(t=>{
         if(!t) return `<div style="flex:1;background:var(--surface2);border-radius:10px;padding:22px 10px;text-align:center;color:var(--text2);font-size:.78rem;border:2px solid var(--border)">Por definir</div>`;
