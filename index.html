@@ -764,15 +764,26 @@ function defaultData() {
     players: [],
     predictions: {},   // { [playerId]: { sim: {...} } }
     referrals: {},
+    results: {},       // { [key]: { home, away, winner } }
     official: null,    // sim state oficial, lo carga el admin
   };
 }
 
 const STORAGE_KEY = 'prode_mundial_2026_v2';
-const FB_URL = 'https://prode-mundial-2026-8cbfc-default-rtdb.firebaseio.com/prode2026.json';
+const FB_BASE = 'https://prode-mundial-2026-8cbfc-default-rtdb.firebaseio.com/prode2026';
+const FB_URL = FB_BASE + '.json';
 
 function mergeWithDefaults(saved) {
   const merged = Object.assign(defaultData(), saved);
+  // players puede venir de Firebase como objeto indexado por id (formato nuevo)
+  // o como array (formato viejo). Normalizamos SIEMPRE a array y deduplicamos por id.
+  if (merged.players && !Array.isArray(merged.players)) {
+    merged.players = Object.values(merged.players).filter(Boolean);
+  }
+  if (!Array.isArray(merged.players)) merged.players = [];
+  const byId = {};
+  for (const p of merged.players) { if (p && p.id) byId[p.id] = p; }
+  merged.players = Object.values(byId);
   if (!merged.groups || !Array.isArray(merged.groups) || merged.groups.length === 0)
     merged.groups = defaultGroups();
   return merged;
@@ -794,11 +805,62 @@ async function loadRemoteData() {
   return mergeWithDefaults(remote);
 }
 
-function saveData() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+// ── GUARDADO ──────────────────────────────────────────────
+// IMPORTANTE: nunca hacemos PUT de TODA la base (eso fue lo que borró jugadores:
+// un dispositivo con datos viejos pisaba la lista completa). Ahora cada cambio
+// escribe SOLO su propia ranura en Firebase, así dos personas guardando a la vez
+// jamás se borran entre sí.
+
+function cacheLocal() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
+}
+
+function fbPut(path, value) {
+  return fetch(`${FB_BASE}/${path}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(value)
+  }).catch(() => {});
+}
+function fbPatch(path, obj) {
+  return fetch(`${FB_BASE}/${path}.json`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(obj)
+  }).catch(() => {});
+}
+function fbDel(path) {
+  return fetch(`${FB_BASE}/${path}.json`, { method: 'DELETE' }).catch(() => {});
+}
+
+// saveData() ahora SOLO guarda la copia local. Las escrituras remotas son granulares.
+function saveData() { cacheLocal(); }
+
+// Inserta/actualiza UN jugador sin tocar a los demás.
+function savePlayer(p) {
+  if (!data.players.find(x => x.id === p.id)) data.players.push(p);
+  cacheLocal();
+  fbPatch('players', { [p.id]: p });
+}
+// Guarda la predicción de UN jugador (no toca la lista de jugadores).
+function savePrediction(pid) {
+  cacheLocal();
+  fbPut('predictions/' + pid, data.predictions[pid] || {});
+}
+// Borra un jugador (admin) y su predicción.
+function removePlayerNode(id) {
+  cacheLocal();
+  fbDel('players/' + id);
+  fbDel('predictions/' + id);
+}
+// Guarda/borra los resultados oficiales.
+function saveOfficialNode() {
+  cacheLocal();
+  if (data.official) fbPut('official', data.official); else fbDel('official');
+}
+// Overwrite COMPLETO — solo para import de backup / reset explícito del admin.
+function saveAll() {
+  cacheLocal();
   fetch(FB_URL, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   }).catch(() => {});
 }
@@ -889,7 +951,6 @@ function loginPlayer() {
   const isNew = !player;
   if (!player) {
     player = { id: crypto.randomUUID(), name, phone, email, profile, wantsList };
-    data.players.push(player);
   } else {
     player.phone = phone;
     player.email = email;
@@ -903,9 +964,10 @@ function loginPlayer() {
       if (!data.referrals) data.referrals = {};
       data.referrals[player.id] = refId;
       sessionStorage.removeItem('pending_ref');
+      fbPut('referrals/' + player.id, refId);   // solo esa ranura
     }
   }
-  saveData();
+  savePlayer(player);   // escribe SOLO este jugador, no toca a los demás
   currentPlayer = player;
   isAdmin = false;
   enterApp();
@@ -1243,7 +1305,7 @@ function saveResult(key) {
   if (home === null || away === null || isNaN(home) || isNaN(away)) { alert('Ingresá el marcador.'); return; }
   if (!winner) { alert('Seleccioná quién avanza.'); return; }
   data.results[key] = { home, away, winner };
-  saveData();
+  saveData(); fbPut('results/' + key, data.results[key]);
   delete adminWinnerDraft[key];
   showToast('✅ Resultado guardado');
   renderAdmin();
@@ -1251,7 +1313,7 @@ function saveResult(key) {
 
 function clearResult(key) {
   if (!confirm('¿Borrar este resultado?')) return;
-  delete data.results[key]; saveData(); renderAdmin();
+  delete data.results[key]; saveData(); fbDel('results/' + key); renderAdmin();
 }
 
 let savePoolTimer = null;
@@ -1261,7 +1323,7 @@ function setGroupTeamName(gi, ti, val) {
     const t = normTeam(data.groups[gi].teams[ti]);
     data.groups[gi].teams[ti] = { name: val, code: t.code };
   }
-  saveData();
+  saveData(); fbPut('groups', data.groups);
 }
 function setGroupTeamCode(gi, ti, val) {
   if (!data.groups) data.groups = defaultGroups();
@@ -1270,13 +1332,10 @@ function setGroupTeamCode(gi, ti, val) {
     data.groups[gi].teams[ti] = { name: t.name, code: val.toLowerCase().trim() };
     renderAdmin();
   }
-  saveData();
+  saveData(); fbPut('groups', data.groups);
 }
 function setPool(i, val) {
   // legacy — no-op
-  saveData();
-  clearTimeout(savePoolTimer);
-  savePoolTimer = setTimeout(saveData, 600);
 }
 
 // toggleRealQualifier legacy — no longer used
@@ -1323,10 +1382,11 @@ function importPlayer() {
   try {
     const d = decodePlayer(code);
     let p = data.players.find(x => x.id === d.id);
-    if (!p) { p = { id: d.id, name: d.name }; data.players.push(p); }
+    if (!p) { p = { id: d.id, name: d.name }; }
     else p.name = d.name;
     data.predictions[d.id] = d.predictions;
-    saveData();
+    savePlayer(p);
+    savePrediction(d.id);
     document.getElementById('import-code-inp').value = '';
     showToast(`✅ ${p.name} importado`);
     renderAdmin();
@@ -1399,7 +1459,7 @@ function removePlayer(id) {
   const p = data.players.find(x => x.id === id);
   if (!confirm(`¿Eliminar a ${p?.name}?`)) return;
   data.players = data.players.filter(x => x.id !== id);
-  delete data.predictions[id]; saveData(); renderAdmin();
+  delete data.predictions[id]; removePlayerNode(id); renderAdmin();
 }
 
 function changePassword() {
@@ -1407,7 +1467,7 @@ function changePassword() {
   const p2 = document.getElementById('new-pass2-inp').value;
   if (!p1) { alert('Ingresá la contraseña.'); return; }
   if (p1 !== p2) { alert('No coinciden.'); return; }
-  data.adminPassword = p1; saveData(); showToast('🔒 Contraseña actualizada');
+  data.adminPassword = p1; saveData(); fbPut('adminPassword', p1); showToast('🔒 Contraseña actualizada');
 }
 
 function exportAll() {
@@ -1447,7 +1507,7 @@ function importAll() {
     const f = e.target.files[0]; if (!f) return;
     const r = new FileReader();
     r.onload = ev => {
-      try { data = { ...defaultData(), ...JSON.parse(ev.target.result) }; saveData(); showToast('✅ Backup importado'); renderAdmin(); }
+      try { data = mergeWithDefaults(JSON.parse(ev.target.result)); saveAll(); showToast('✅ Backup importado'); renderAdmin(); }
       catch { alert('Archivo inválido.'); }
     };
     r.readAsText(f);
@@ -1458,7 +1518,7 @@ function importAll() {
 function resetData() {
   if (!confirm('⚠️ Esto borra TODO. ¿Seguro?')) return;
   if (!confirm('¿Confirmás el reset?')) return;
-  data = defaultData(); saveData(); showToast('🗑 Datos reseteados'); renderAdmin();
+  data = defaultData(); saveAll(); showToast('🗑 Datos reseteados'); renderAdmin();
 }
 
 // ════════════════════════════════════════════════════
@@ -1515,10 +1575,10 @@ function offGoStep(step) { ensureOffSim(); offSim.step=step; renderAdmin(); }
 function offSaveOfficial() {
   ensureOffSim();
   data.official = { groupRanks:offSim.groupRanks, thirds:offSim.thirds, r32:offSim.r32, r16:offSim.r16, qf:offSim.qf, sf:offSim.sf, final:offSim.final, thirdPlace:offSim.thirdPlace };
-  saveData(); showToast('✅ Resultados oficiales guardados'); renderAdmin();
+  saveOfficialNode(); showToast('✅ Resultados oficiales guardados'); renderAdmin();
 }
 function offReset() {
-  offSim=null; data.official=null; saveData(); showToast('🗑 Resultados eliminados'); renderAdmin();
+  offSim=null; data.official=null; saveOfficialNode(); showToast('🗑 Resultados eliminados'); renderAdmin();
 }
 
 function renderOfficialTab() {
@@ -1762,7 +1822,7 @@ function saveSimState() {
     r32: sim.r32, r16: sim.r16, qf: sim.qf, sf: sim.sf,
     final: sim.final, thirdPlace: sim.thirdPlace,
   };
-  saveData();
+  savePrediction(currentPlayer.id);   // SOLO esta predicción, no toca la lista de jugadores
   updateStatusPts();
   const ind = document.getElementById('autosave-indicator');
   if (ind) { ind.style.display='inline'; clearTimeout(ind._t); ind._t=setTimeout(()=>ind.style.display='none',2000); }
