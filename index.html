@@ -765,6 +765,7 @@ function defaultData() {
     predictions: {},   // { [playerId]: { sim: {...} } }
     referrals: {},
     results: {},       // { [key]: { home, away, winner } }
+    teams: {},         // { [key]: { home, away } } — nombres de equipos del bracket (admin)
     official: null,    // sim state oficial, lo carga el admin
   };
 }
@@ -1292,7 +1293,7 @@ function setAdminTeam(key, side, val) {
   if (!data.teams[key]) data.teams[key] = { home:'', away:'' };
   data.teams[key][side] = val;
   clearTimeout(saveTeamTimer);
-  saveTeamTimer = setTimeout(saveData, 800);
+  saveTeamTimer = setTimeout(() => { saveData(); fbPut('teams', data.teams); }, 800);
 }
 
 function saveResult(key) {
