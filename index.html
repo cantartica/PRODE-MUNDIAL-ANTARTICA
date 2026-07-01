@@ -1124,24 +1124,40 @@ function playerStats(playerId) {
   // Equipos en Cuartos (ganadores de 8vos):  2pts c/u → máx 16
   // Equipos en Semis (ganadores de Cuartos): 3pts c/u → máx 12
   // Equipos en Final (ganadores de Semis):   5pts c/u → máx 10
-  const rounds = [{k:'r32',p:1},{k:'r16',p:2},{k:'qf',p:3},{k:'sf',p:5}];
-  for (const {k,p} of rounds) {
+  const rounds = [
+    {k:'r32', p:1, label:'8vos'},
+    {k:'r16', p:2, label:'4tos'},
+    {k:'qf',  p:3, label:'Semis'},
+    {k:'sf',  p:5, label:'Final'},
+  ];
+  // breakdown: desglose por categoría para el seguimiento del admin.
+  //   hits = aciertos · officialCount = slots ya cargados por el admin · pts = puntos sumados
+  const breakdown = {};
+  for (const {k,p,label} of rounds) {
     const pr = psim[k]||{}, or = off[k]||{};
+    let hits = 0;
     for (const [idx,team] of Object.entries(or)) {
-      if (pr[idx]===team) pts += p;
+      if (pr[idx]===team) hits++;
     }
+    const catPts = hits * p;
+    pts += catPts;
+    breakdown[k] = { label, perPt:p, hits, officialCount:Object.keys(or).length, pts:catPts };
   }
 
   // Campeón: +10 · Tercer puesto: +5
-  if (psim.final && psim.final===off.final) pts += 10;
-  if (psim.thirdPlace && psim.thirdPlace===off.thirdPlace) pts += 5;
+  const champHit = !!(psim.final && psim.final===off.final);
+  const thirdHit = !!(psim.thirdPlace && psim.thirdPlace===off.thirdPlace);
+  if (champHit) pts += 10;
+  if (thirdHit) pts += 5;
+  breakdown.champ = { label:'Campeón', perPt:10, hits:champHit?1:0, officialCount:off.final?1:0, pts:champHit?10:0 };
+  breakdown.third = { label:'3°',      perPt:5,  hits:thirdHit?1:0, officialCount:off.thirdPlace?1:0, pts:thirdHit?5:0 };
 
   // Bonus referidos
   const refCount = Object.values(data.referrals||{}).filter(rid=>rid===playerId).length;
   const refBonus = refCount * REFERRAL_BONUS;
   pts += refBonus;
 
-  return { pts, refBonus, refCount };
+  return { pts, refBonus, refCount, breakdown };
 }
 
 // ════════════════════════════════════════════════════
@@ -1201,6 +1217,7 @@ function renderAdmin() {
   let html = `<div class="tabs">
     <button class="tab ${adminTab==='equipos'?'active':''}" onclick="switchAdminTab('equipos')">⚽ Equipos</button>
     <button class="tab ${adminTab==='resultados'?'active':''}" onclick="switchAdminTab('resultados')">✅ Resultados</button>
+    <button class="tab ${adminTab==='seguimiento'?'active':''}" onclick="switchAdminTab('seguimiento')">📈 Seguimiento</button>
     <button class="tab ${adminTab==='jugadores'?'active':''}" onclick="switchAdminTab('jugadores')">👥 Jugadores</button>
     <button class="tab ${adminTab==='config'?'active':''}" onclick="switchAdminTab('config')">⚙️ Config</button>
   </div>`;
@@ -1229,6 +1246,10 @@ function renderAdmin() {
 
   else if (adminTab === 'resultados') {
     html += renderOfficialTab();
+  }
+
+  else if (adminTab === 'seguimiento') {
+    html += renderSeguimiento();
   }
 
   else if (adminTab === 'jugadores') {
@@ -1286,6 +1307,174 @@ function renderAdmin() {
   }
 
   container.innerHTML = html;
+}
+
+// ── SEGUIMIENTO (admin) ───────────────────────────────────
+// Tabla de seguimiento: cómo cada jugador va sumando puntos, desglosado por ronda.
+const SEG_COLS = [
+  {k:'r32',   label:'8vos', title:'Octavos (+1 c/u)'},
+  {k:'r16',   label:'4tos', title:'Cuartos (+2 c/u)'},
+  {k:'qf',    label:'Semis',title:'Semis (+3 c/u)'},
+  {k:'sf',    label:'Final',title:'Finalistas (+5 c/u)'},
+  {k:'champ', label:'🏆',   title:'Campeón (+10)'},
+  {k:'third', label:'🥉',   title:'3er puesto (+5)'},
+];
+
+function renderSeguimiento() {
+  const rows = data.players.map(p => ({ ...p, stats: playerStats(p.id) }))
+    .sort((a,b) => b.stats.pts - a.stats.pts);
+
+  const lastUpd = data.official && data.official.savedAt ? fmtDateTime(data.official.savedAt) : null;
+  let html = data.official
+    ? `<div class="alert alert-success">✅ Resultados oficiales cargados — el puntaje se actualiza solo a medida que cargás resultados en la pestaña “Resultados”.${lastUpd?`<div style="font-size:.72rem;color:var(--text2);font-weight:400;margin-top:4px">🕓 Última actualización de puntajes: <b style="color:#93d8f5">${lastUpd}</b></div>`:''}</div>`
+    : `<div class="alert alert-warn">⏳ Todavía no cargaste los resultados oficiales. Cuando los cargues (pestaña “Resultados”), acá vas a ver cómo suma puntos cada jugador.</div>`;
+
+  if (rows.length === 0) {
+    return html + `<div class="empty-state"><div class="empty-icon">📈</div><p>No hay jugadores registrados todavía.</p></div>`;
+  }
+
+  // Leyenda de puntos
+  html += `<div class="card" style="padding:12px"><div class="card-title" style="margin-bottom:8px">Cómo se reparten los puntos</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:.72rem;color:var(--text2)">
+      <span class="pts-badge pts-good">8vos +1</span>
+      <span class="pts-badge pts-good">4tos +2</span>
+      <span class="pts-badge pts-good">Semis +3</span>
+      <span class="pts-badge pts-good">Final +5</span>
+      <span class="pts-badge pts-max">🏆 Campeón +10</span>
+      <span class="pts-badge pts-some">🥉 3° +5</span>
+      <span class="pts-badge" style="background:rgba(167,139,250,.18);color:#a78bfa">📲 Referido +${REFERRAL_BONUS}</span>
+    </div></div>`;
+
+  html += `<div class="card" style="padding:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">
+      <div class="card-title" style="margin-bottom:0">Puntos por jugador (${rows.length})</div>
+      <button class="btn btn-sm btn-accent" onclick="exportSeguimientoExcel()">⬇️ Exportar Excel</button>
+    </div>
+    <div style="overflow-x:auto"><table class="lb-table" style="min-width:640px">
+    <thead><tr>
+      <th style="width:28px">#</th><th>Jugador</th>`;
+  SEG_COLS.forEach(c => { html += `<th style="text-align:center" title="${escHtml(c.title)}">${c.label}</th>`; });
+  html += `<th style="text-align:center" title="Bonus por referidos">📲</th>
+      <th style="text-align:center">Total</th><th></th>
+    </tr></thead><tbody>`;
+
+  rows.forEach((p, i) => {
+    const rank = i+1;
+    const cls = rank===1?'r1':rank===2?'r2':rank===3?'r3':'';
+    const emoji = rank===1?'🥇':rank===2?'🥈':rank===3?'🥉':rank;
+    const bd = p.stats.breakdown;
+    let cells = '';
+    SEG_COLS.forEach(c => {
+      const b = bd[c.k] || {pts:0,hits:0,officialCount:0};
+      const has = b.officialCount > 0;
+      const strong = b.pts > 0;
+      const detail = has ? `<span style="font-size:.6rem;color:var(--text2)">${b.hits}/${b.officialCount}</span>` : '';
+      cells += `<td style="text-align:center">
+        <div style="font-weight:${strong?800:400};color:${strong?'var(--accent)':'var(--text2)'};font-size:.9rem">${b.pts}</div>
+        ${detail}
+      </td>`;
+    });
+    const ref = p.stats.refCount > 0
+      ? `<div style="font-weight:700;color:#a78bfa;font-size:.9rem">+${p.stats.refBonus}</div><span style="font-size:.6rem;color:var(--text2)">${p.stats.refCount}</span>`
+      : `<div style="color:var(--text2)">—</div>`;
+    html += `<tr>
+      <td class="rank-cell ${cls}">${emoji}</td>
+      <td class="player-cell">${escHtml(p.name)}</td>
+      ${cells}
+      <td style="text-align:center">${ref}</td>
+      <td class="total-cell" style="text-align:center">${p.stats.pts}</td>
+      <td><button class="btn btn-sm btn-secondary" onclick="showPlayerDetail('${escJs(p.id)}')" title="Ver predicciones">👁</button></td>
+    </tr>`;
+  });
+  html += `</tbody></table></div></div>`;
+  return html;
+}
+
+// Detalle de las predicciones de un jugador vs. los resultados oficiales.
+function showPlayerDetail(playerId) {
+  const p = data.players.find(x => x.id === playerId);
+  if (!p) return;
+  const psim = (data.predictions[playerId]?.sim) || {};
+  const off  = data.official || {};
+  const st = playerStats(playerId);
+  const bd = st.breakdown;
+
+  const ROUND_DEFS = [
+    {k:'r32', label:'Clasificados a Octavos', per:1},
+    {k:'r16', label:'Clasificados a Cuartos', per:2},
+    {k:'qf',  label:'Semifinalistas',         per:3},
+    {k:'sf',  label:'Finalistas',             per:5},
+  ];
+
+  let body = `<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">
+    <div style="font-size:.78rem;color:var(--text2)">${escHtml(p.phone||'')} ${p.profile?'· '+escHtml(p.profile):''}</div>
+    <div style="font-size:1.4rem;font-weight:900;color:var(--accent)">${st.pts} <span style="font-size:.7rem;color:var(--text2);font-weight:600">pts</span></div>
+  </div>`;
+
+  if (!data.official) {
+    body += `<div class="alert alert-warn" style="margin-bottom:12px">Todavía no hay resultados oficiales. Se muestran las predicciones del jugador; los aciertos aparecerán cuando cargues los resultados.</div>`;
+  }
+
+  // Helper: pinta un equipo con tilde/cruz según coincida con el oficial en ese mismo slot
+  const teamRow = (pick, correct, official, showResult) => {
+    const code = teamFlagCode(pick||'');
+    let mark = '', color = 'var(--text)';
+    if (showResult) {
+      if (correct) { mark = '<span class="check">✓</span>'; color = 'var(--accent)'; }
+      else { mark = '<span class="cross">✗</span>'; color = '#fca5a5'; }
+    }
+    const off = (showResult && official && official!==pick)
+      ? `<span style="font-size:.66rem;color:var(--text2)"> · real: ${escHtml(official)}</span>` : '';
+    return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:.8rem">
+      ${flagImg(code,14)}<span style="color:${color};font-weight:${correct?700:400}">${escHtml(pick||'—')}</span>${mark}${off}</div>`;
+  };
+
+  ROUND_DEFS.forEach(r => {
+    const pr = psim[r.k] || {}, or = off[r.k] || {};
+    const idxs = Object.keys(pr).length ? Object.keys(pr) : Object.keys(or);
+    if (idxs.length === 0) return;
+    const b = bd[r.k] || {hits:0,officialCount:0,pts:0};
+    const showResult = (b.officialCount > 0);
+    const ptsBadge = showResult
+      ? `<span class="pts-badge ${b.pts>0?'pts-good':'pts-zero'}">${b.hits}/${b.officialCount} · ${b.pts} pts</span>`
+      : `<span class="pts-badge pts-pending">+${r.per} c/u</span>`;
+    body += `<div style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <div style="font-weight:700;font-size:.82rem;color:var(--accent)">${r.label}</div>${ptsBadge}
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 12px">`;
+    idxs.sort((a,b)=>(+a)-(+b)).forEach(idx => {
+      const pick = pr[idx];
+      const official = or[idx];
+      const correct = showResult && pick && pick===official;
+      body += teamRow(pick, correct, official, showResult);
+    });
+    body += `</div></div>`;
+  });
+
+  // Campeón y 3er puesto
+  const champOk = bd.champ.hits>0, thirdOk = bd.third.hits>0;
+  const champShow = bd.champ.officialCount>0, thirdShow = bd.third.officialCount>0;
+  body += `<div style="display:flex;gap:8px;margin-top:4px">
+    <div style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center">
+      <div style="font-size:.66rem;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">🏆 Campeón</div>
+      <div style="font-weight:700;font-size:.85rem;color:${champShow?(champOk?'var(--accent)':'#fca5a5'):'var(--text)'}">${escHtml(psim.final||'—')} ${champShow?(champOk?'✓':'✗'):''}</div>
+      ${champShow&&!champOk&&off.final?`<div style="font-size:.65rem;color:var(--text2)">real: ${escHtml(off.final)}</div>`:''}
+    </div>
+    <div style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center">
+      <div style="font-size:.66rem;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">🥉 3er puesto</div>
+      <div style="font-weight:700;font-size:.85rem;color:${thirdShow?(thirdOk?'var(--accent)':'#fca5a5'):'var(--text)'}">${escHtml(psim.thirdPlace||'—')} ${thirdShow?(thirdOk?'✓':'✗'):''}</div>
+      ${thirdShow&&!thirdOk&&off.thirdPlace?`<div style="font-size:.65rem;color:var(--text2)">real: ${escHtml(off.thirdPlace)}</div>`:''}
+    </div>
+  </div>`;
+
+  if (st.refCount > 0) {
+    body += `<div style="margin-top:10px;text-align:center;font-size:.78rem;color:#a78bfa">📲 ${st.refCount} referido(s) · +${st.refBonus} pts</div>`;
+  }
+
+  body += `<button class="btn btn-secondary btn-full" style="margin-top:16px" onclick="document.getElementById('modal-overlay').classList.add('hidden')">Cerrar</button>`;
+
+  openModal(`👁 ${p.name}`, body);
 }
 
 let adminWinnerDraft = {};
@@ -1511,6 +1700,24 @@ function exportJugadoresExcel() {
   a.href = URL.createObjectURL(blob); a.download = 'prode_mundial_2026.csv'; a.click();
 }
 
+// Exporta el seguimiento de puntos (desglose por ronda) a CSV.
+function exportSeguimientoExcel() {
+  const sorted = [...data.players].sort((a,b) => playerStats(b.id).pts - playerStats(a.id).pts);
+  const rows = [['#','Nombre','WhatsApp','8vos','4tos','Semis','Final','Campeon','3er Puesto','Referidos','Total']];
+  sorted.forEach((p, i) => {
+    const st = playerStats(p.id), bd = st.breakdown;
+    rows.push([
+      i+1, p.name||'', p.phone||'',
+      bd.r32.pts, bd.r16.pts, bd.qf.pts, bd.sf.pts,
+      bd.champ.pts, bd.third.pts, st.refBonus, st.pts,
+    ]);
+  });
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'prode_seguimiento_2026.csv'; a.click();
+}
+
 function importAll() {
   const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json';
   inp.onchange = e => {
@@ -1584,7 +1791,7 @@ function offPickWinner(round,idx,team) {
 function offGoStep(step) { ensureOffSim(); offSim.step=step; renderAdmin(); }
 function offSaveOfficial() {
   ensureOffSim();
-  data.official = { groupRanks:offSim.groupRanks, thirds:offSim.thirds, r32:offSim.r32, r16:offSim.r16, qf:offSim.qf, sf:offSim.sf, final:offSim.final, thirdPlace:offSim.thirdPlace };
+  data.official = { groupRanks:offSim.groupRanks, thirds:offSim.thirds, r32:offSim.r32, r16:offSim.r16, qf:offSim.qf, sf:offSim.sf, final:offSim.final, thirdPlace:offSim.thirdPlace, savedAt:Date.now() };
   saveOfficialNode(); showToast('✅ Resultados oficiales guardados'); renderAdmin();
 }
 function offReset() {
@@ -2149,6 +2356,16 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function escJs(s) { return String(s||'').replace(/'/g,"\\'"); }
+
+// Formatea un timestamp (ms) a fecha y hora de Argentina.
+function fmtDateTime(ts) {
+  try {
+    return new Date(ts).toLocaleString('es-AR', {
+      day:'2-digit', month:'2-digit', year:'numeric',
+      hour:'2-digit', minute:'2-digit', timeZone:'America/Argentina/Buenos_Aires'
+    }) + ' hs';
+  } catch(e) { return ''; }
+}
 
 function copyCode(elId) {
   const el = document.getElementById(elId);
