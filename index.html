@@ -1746,16 +1746,55 @@ function resetData() {
 let offSim = null;
 function ensureOffSim() {
   if (offSim) return;
-  const base = {step:'groups',groupRanks:{},thirds:[],r32:{},r16:{},qf:{},sf:{},final:null,thirdPlace:null};
+  const base = {step:'groups',groupRanks:{},thirds:[],thirdSlots:{},r32:{},r16:{},qf:{},sf:{},final:null,thirdPlace:null};
   offSim = data.official ? {...base,...data.official,step:'groups'} : base;
+  if (!offSim.thirdSlots) offSim.thirdSlots = {};
+}
+// Asignación manual del tercero que juega un partido de 16avos (para que el cruce
+// coincida con el real de FIFA). Al cambiarlo se limpian los resultados aguas abajo.
+function offSetThirdSlot(mi, team) {
+  ensureOffSim();
+  if (!offSim.thirdSlots) offSim.thirdSlots = {};
+  for (const k of Object.keys(offSim.thirdSlots)) if (offSim.thirdSlots[k] === team) delete offSim.thirdSlots[k];
+  if (team) offSim.thirdSlots[mi] = team; else delete offSim.thirdSlots[mi];
+  delete offSim.r32[mi];
+  const r16i=R32_TO_R16[mi]; if(r16i!==undefined){delete offSim.r16[r16i]; const qfi=R16_TO_QF[r16i]; if(qfi!==undefined){delete offSim.qf[qfi]; const sfi=QF_TO_SF[qfi]; if(sfi!==undefined) delete offSim.sf[sfi];}}
+  offSim.final=null; offSim.thirdPlace=null;
+  renderAdmin();
 }
 function offResolvePos(pos) { const rank=parseInt(pos[0]),grp=pos[1]; return (offSim.groupRanks[grp]||{})[rank]||''; }
 function offGetThirdGroup(team) { for(const [g,r] of Object.entries(offSim.groupRanks)) if(r[3]===team) return g; return ''; }
+// Asigna los 8 terceros a sus partidos de 16avos.
+// 1) Respeta las asignaciones MANUALES del admin (offSim.thirdSlots) — necesario para
+//    que los cruces coincidan con los reales de FIFA (hay varias combinaciones válidas).
+// 2) Completa el resto con backtracking, igual que el lado jugador → nunca deja un slot vacío.
 function offGetThirdAssignments() {
-  const slotIds=Object.keys(SIM_THIRD_SLOTS).map(Number);
-  const available=[...offSim.thirds]; const result={};
-  slotIds.sort((a,b)=>available.filter(t=>SIM_THIRD_SLOTS[a].includes(offGetThirdGroup(t))).length - available.filter(t=>SIM_THIRD_SLOTS[b].includes(offGetThirdGroup(t))).length);
-  for(const sid of slotIds){ const idx=available.findIndex(t=>SIM_THIRD_SLOTS[sid].includes(offGetThirdGroup(t))); if(idx>=0){result[sid]=available[idx];available.splice(idx,1);}else result[sid]=''; }
+  const slotIds = Object.keys(SIM_THIRD_SLOTS).map(Number);
+  const manual = offSim.thirdSlots || {};
+  const result = {};
+  const used = new Set();
+  for (const sid of slotIds) {
+    const t = manual[sid];
+    if (t && offSim.thirds.includes(t) && !used.has(t) && SIM_THIRD_SLOTS[sid].includes(offGetThirdGroup(t))) {
+      result[sid] = t; used.add(t);
+    }
+  }
+  const openSlots = slotIds.filter(s => !result[s]);
+  const avail0 = offSim.thirds.filter(t => !used.has(t));
+  function backtrack(slots, avail) {
+    if (slots.length === 0) return true;
+    const sorted = [...slots].sort((a, b) =>
+      avail.filter(t => SIM_THIRD_SLOTS[a].includes(offGetThirdGroup(t))).length -
+      avail.filter(t => SIM_THIRD_SLOTS[b].includes(offGetThirdGroup(t))).length);
+    const sid = sorted[0], remaining = slots.filter(s => s !== sid);
+    const cands = avail.filter(t => SIM_THIRD_SLOTS[sid].includes(offGetThirdGroup(t)));
+    for (const team of cands) {
+      result[sid] = team;
+      if (backtrack(remaining, avail.filter(t => t !== team))) return true;
+    }
+    result[sid] = ''; return false;
+  }
+  backtrack(openSlots, avail0);
   return result;
 }
 function offGetR32Team(mi,side) { const m=SIM_R32[mi],pos=side==='home'?m.home:m.away; if(pos==='3rd') return offGetThirdAssignments()[mi]||''; return offResolvePos(pos); }
@@ -1769,14 +1808,14 @@ function offSetRank(grp,rank,team) {
   if((offSim.groupRanks[grp][rank]||'')===team) return;
   for(const r of [1,2,3]) if(offSim.groupRanks[grp][r]===team&&r!==rank) delete offSim.groupRanks[grp][r];
   if(team) offSim.groupRanks[grp][rank]=team; else delete offSim.groupRanks[grp][rank];
-  offSim.thirds=[]; offSim.r32={}; offSim.r16={}; offSim.qf={}; offSim.sf={}; offSim.final=null; offSim.thirdPlace=null;
+  offSim.thirds=[]; offSim.thirdSlots={}; offSim.r32={}; offSim.r16={}; offSim.qf={}; offSim.sf={}; offSim.final=null; offSim.thirdPlace=null;
   renderAdmin();
 }
 function offToggleThird(team) {
   ensureOffSim();
   const idx=offSim.thirds.indexOf(team);
   if(idx>=0) offSim.thirds.splice(idx,1); else if(offSim.thirds.length<8) offSim.thirds.push(team);
-  offSim.r32={}; offSim.r16={}; offSim.qf={}; offSim.sf={}; offSim.final=null; offSim.thirdPlace=null;
+  offSim.thirdSlots={}; offSim.r32={}; offSim.r16={}; offSim.qf={}; offSim.sf={}; offSim.final=null; offSim.thirdPlace=null;
   renderAdmin();
 }
 function offPickWinner(round,idx,team) {
@@ -1791,7 +1830,7 @@ function offPickWinner(round,idx,team) {
 function offGoStep(step) { ensureOffSim(); offSim.step=step; renderAdmin(); }
 function offSaveOfficial() {
   ensureOffSim();
-  data.official = { groupRanks:offSim.groupRanks, thirds:offSim.thirds, r32:offSim.r32, r16:offSim.r16, qf:offSim.qf, sf:offSim.sf, final:offSim.final, thirdPlace:offSim.thirdPlace, savedAt:Date.now() };
+  data.official = { groupRanks:offSim.groupRanks, thirds:offSim.thirds, thirdSlots:offSim.thirdSlots, r32:offSim.r32, r16:offSim.r16, qf:offSim.qf, sf:offSim.sf, final:offSim.final, thirdPlace:offSim.thirdPlace, savedAt:Date.now() };
   saveOfficialNode(); showToast('✅ Resultados oficiales guardados'); renderAdmin();
 }
 function offReset() {
@@ -1865,13 +1904,30 @@ function renderOfficialTab() {
 
     if (!finalStep && cfg) {
       h += `<div style="font-size:.8rem;font-weight:700;color:var(--accent);margin-bottom:10px">${cfg.label}</div>`;
+      if (o.step==='r32') h += `<div class="alert alert-info" style="font-size:.72rem;margin-bottom:10px">💡 En los partidos con tercero podés elegir <b>qué tercero</b> juega, para que el cruce coincida con el real de FIFA. El resto se completa solo.</div>`;
       for(let mi=0;mi<cfg.count;mi++) {
         const homeT=cfg.getH(mi), awayT=cfg.getA(mi);
         const winner=o[cfg.store][mi];
-        h += `<div class="sim-match" style="margin-bottom:8px">
+        // Selector manual del tercero (solo en 16avos, en los partidos cuyo visitante es un 3°)
+        let thirdPicker='';
+        if (o.step==='r32' && SIM_R32[mi].away==='3rd') {
+          const allowed = SIM_THIRD_SLOTS[mi]||[];
+          const opts = offSim.thirds.filter(t => allowed.includes(offGetThirdGroup(t)));
+          thirdPicker = `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+            <span style="font-size:.62rem;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap">3° rival:</span>
+            <select onchange="offSetThirdSlot(${mi}, this.value)" class="admin-inp" style="padding:5px 8px;font-size:.78rem">
+              <option value="">— elegir —</option>
+              ${opts.map(t=>`<option value="${escHtml(t)}" ${t===awayT?'selected':''}>${escHtml(t)} (3°${escHtml(offGetThirdGroup(t))})</option>`).join('')}
+            </select>
+          </div>`;
+        }
+        h += `<div class="sim-match" style="margin-bottom:8px;flex-direction:column;align-items:stretch">
+          ${thirdPicker}
+          <div style="display:flex;align-items:center;gap:6px">
           <button onclick="offPickWinner('${cfg.store}',${mi},'${escJs(homeT)}')" class="sim-team-btn ${winner===homeT&&homeT?'sim-winner':''}" ${!homeT?'disabled':''}>${escHtml(homeT||'?')}</button>
           <span class="vs">vs</span>
           <button onclick="offPickWinner('${cfg.store}',${mi},'${escJs(awayT)}')" class="sim-team-btn ${winner===awayT&&awayT?'sim-winner':''}" ${!awayT?'disabled':''}>${escHtml(awayT||'?')}</button>
+          </div>
         </div>`;
       }
       const done=Object.keys(o[cfg.store]).length;
