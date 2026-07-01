@@ -950,11 +950,7 @@ function recoverByPhone() {
   currentPlayer = player;
   isAdmin = false;
   const saved = (data.predictions[player.id]||{}).sim;
-  if (saved) {
-    sim = { step:'groups', groupRanks:{}, thirds:[], r32:{}, r16:{}, qf:{}, sf:{}, final:null, thirdPlace:null, ...saved };
-  } else {
-    sim = { step:'groups', groupRanks:{}, thirds:[], r32:{}, r16:{}, qf:{}, sf:{}, final:null, thirdPlace:null };
-  }
+  sim = saved ? { ...blankSim(), ...saved } : buildPrefilledSim();
   enterApp();
 }
 
@@ -1029,6 +1025,30 @@ function showWelcomeError(msg) {
   setTimeout(() => el.classList.add('hidden'), 3000);
 }
 
+// Base vacía del sim del jugador (todas las ranuras presentes).
+function blankSim() {
+  return { step:'groups', groupRanks:{}, thirds:[], thirdSlots:{}, r32:{}, r16:{}, qf:{}, sf:{}, final:null, thirdPlace:null, prefilled:false };
+}
+// Arma un prode con la FASE DE GRUPOS YA RESUELTA con los resultados oficiales,
+// listo para predecir desde los 16avos (sin ganadores de esa ronda). Si el admin
+// todavía no cargó la fase de grupos completa, devuelve un prode en blanco (arranca en grupos).
+function buildPrefilledSim() {
+  const off = data.official;
+  const groups = data.groups || defaultGroups();
+  const gr = (off && off.groupRanks) || {};
+  const allGroupsDone = groups.every(g => { const r = gr[g.name] || {}; return r[1] && r[2] && r[3]; });
+  const thirdsDone = ((off && off.thirds) || []).length === 8;
+  if (!allGroupsDone || !thirdsDone) return blankSim();
+  return {
+    ...blankSim(),
+    groupRanks: JSON.parse(JSON.stringify(off.groupRanks)),
+    thirds: [...off.thirds],
+    thirdSlots: { ...(off.thirdSlots || {}) },
+    step: 'r32',
+    prefilled: true,
+  };
+}
+
 function enterApp() {
   document.getElementById('screen-welcome').classList.add('hidden');
   document.getElementById('screen-app').classList.remove('hidden');
@@ -1038,9 +1058,10 @@ function enterApp() {
   // Cargar sim del jugador desde Firebase data
   const saved = (data.predictions[currentPlayer?.id] || {}).sim;
   if (saved) {
-    sim = { step:'groups', groupRanks:{}, thirds:[], r32:{}, r16:{}, qf:{}, sf:{}, final:null, thirdPlace:null, ...saved };
+    sim = { ...blankSim(), ...saved };
   } else {
-    sim = { step:'groups', groupRanks:{}, thirds:[], r32:{}, r16:{}, qf:{}, sf:{}, final:null, thirdPlace:null };
+    // Jugador nuevo (o sin prode guardado): fase de grupos ya autocompletada.
+    sim = buildPrefilledSim();
   }
   showPage(isAdmin ? 'admin' : 'predictions');
 }
@@ -2071,8 +2092,10 @@ let sim = {
   step: 'groups',
   groupRanks: {},  // { 'A': { 1:'México', 2:'Corea del Sur', 3:'Chequia' }, … }
   thirds: [],      // 8 team names selected as best thirds
+  thirdSlots: {},  // { matchIdx: teamName } — cruces fijados (prode pre-cargado)
   r32: {}, r16: {}, qf: {}, sf: {},
   final: null, thirdPlace: null,
+  prefilled: false, // true si la fase de grupos vino resuelta con los resultados oficiales
 };
 
 function simGetThirdGroup(team) {
@@ -2084,7 +2107,18 @@ function simGetThirdGroup(team) {
 // Asigna los 8 terceros a sus slots del bracket según reglas FIFA
 function simGetThirdAssignments() {
   const slotIds = Object.keys(SIM_THIRD_SLOTS).map(Number);
+  const manual = sim.thirdSlots || {};
   const result = {};
+  const used = new Set();
+  // Respeta las asignaciones fijadas (ej: prode pre-cargado con los cruces reales de FIFA)
+  for (const sid of slotIds) {
+    const t = manual[sid];
+    if (t && sim.thirds.includes(t) && !used.has(t) && SIM_THIRD_SLOTS[sid].includes(simGetThirdGroup(t))) {
+      result[sid] = t; used.add(t);
+    }
+  }
+  const openSlots = slotIds.filter(s => !result[s]);
+  const avail0 = sim.thirds.filter(t => !used.has(t));
   function backtrack(slots, avail) {
     if (slots.length === 0) return true;
     const sorted = [...slots].sort((a, b) => {
@@ -2102,7 +2136,7 @@ function simGetThirdAssignments() {
     result[sid] = '';
     return false;
   }
-  backtrack(slotIds, [...sim.thirds]);
+  backtrack(openSlots, avail0);
   return result;
 }
 
@@ -2128,9 +2162,10 @@ function saveSimState() {
   if (isLocked()) return;   // tras el cierre no se persiste ningún cambio
   if (!data.predictions[currentPlayer.id]) data.predictions[currentPlayer.id] = {};
   data.predictions[currentPlayer.id].sim = {
-    groupRanks: sim.groupRanks, thirds: sim.thirds,
+    step: sim.step,
+    groupRanks: sim.groupRanks, thirds: sim.thirds, thirdSlots: sim.thirdSlots,
     r32: sim.r32, r16: sim.r16, qf: sim.qf, sf: sim.sf,
-    final: sim.final, thirdPlace: sim.thirdPlace,
+    final: sim.final, thirdPlace: sim.thirdPlace, prefilled: sim.prefilled,
   };
   savePrediction(currentPlayer.id);   // SOLO esta predicción, no toca la lista de jugadores
   updateStatusPts();
@@ -2170,10 +2205,14 @@ function simPickWinner(round, idx, team) {
   } else if (round==='sf') { sim.final=null; sim.thirdPlace=null; }
   renderSimulate(); saveSimState();
 }
-function simGoStep(step) { sim.step=step; renderSimulate(); }
+function simGoStep(step) {
+  // Si la fase de grupos vino resuelta, no se puede volver a editarla.
+  if (sim.prefilled && (step==='groups' || step==='thirds')) return;
+  sim.step=step; renderSimulate();
+}
 function simReset() {
   if (isLocked()) { lockToast(); return; }
-  sim={step:'groups',groupRanks:{},thirds:[],r32:{},r16:{},qf:{},sf:{},final:null,thirdPlace:null};
+  sim = buildPrefilledSim();
   renderSimulate(); saveSimState();
 }
 // Campeón y 3er puesto: funciones que GUARDAN (antes el onclick inline no llamaba a saveSimState)
@@ -2192,8 +2231,11 @@ function simSetThirdPlace(team) {
 function renderSimulate() {
   const container = document.getElementById('predictions-content');
   if (!container) return;
-  const STEPS=['groups','thirds','r32','r16','qf','sf','final'];
-  const LBLS =['Grupos','Mej. 3°','32vos','Octavos','Cuartos','Semis','Final'];
+  const prefilled = !!sim.prefilled;
+  const STEPS = prefilled ? ['r32','r16','qf','sf','final'] : ['groups','thirds','r32','r16','qf','sf','final'];
+  const LBLS  = prefilled ? ['32vos','Octavos','Cuartos','Semis','Final'] : ['Grupos','Mej. 3°','32vos','Octavos','Cuartos','Semis','Final'];
+  // Si viene pre-cargado y quedó en un paso oculto (grupos/terceros), arrancar en 16avos.
+  if (prefilled && !STEPS.includes(sim.step)) sim.step = 'r32';
   const si = STEPS.indexOf(sim.step);
   const locked = isLocked();
   let html = '';
@@ -2208,7 +2250,7 @@ function renderSimulate() {
   }
   html += `<div style="margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-weight:800;font-size:.88rem;color:var(--accent)">Simulador Fase de Grupos</span>
+      <span style="font-weight:800;font-size:.88rem;color:var(--accent)">${prefilled ? 'Tu Prode · desde 16avos' : 'Simulador Fase de Grupos'}</span>
       ${locked ? '' : '<button class="btn btn-sm btn-secondary" onclick="simReset()">↺ Reiniciar</button>'}
     </div>
     <div style="display:flex;gap:3px">
@@ -2218,12 +2260,16 @@ function renderSimulate() {
         ${LBLS[i]}</div>`).join('')}
     </div>
   </div>`;
+  if (prefilled && !locked) {
+    html += `<div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:8px;margin-bottom:10px;font-size:.74rem;color:#86efac">
+      ✅ <span>La <strong>fase de grupos ya está resuelta</strong> con los resultados reales. Arrancás prediciendo desde los <strong>16avos</strong>.</span></div>`;
+  }
   const noPtsBanner = `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:8px;margin-bottom:10px;font-size:.74rem;color:var(--text2)">⚙️ <span>Esta etapa <strong>no suma puntos</strong> — sirve para armar el bracket.</span></div>`;
   const ptsBanner  = `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(88,192,236,.08);border:1px solid rgba(88,192,236,.25);border-radius:8px;margin-bottom:10px;font-size:.74rem;color:var(--accent)">⭐ <span><strong>¡Acá empiezan los puntos!</strong> Cada equipo que acertés en esta ronda suma +1 pt.</span></div>`;
   const ptsBannerN = (pts) => `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(88,192,236,.08);border:1px solid rgba(88,192,236,.25);border-radius:8px;margin-bottom:10px;font-size:.74rem;color:var(--accent)">⭐ <span>Cada equipo acertado en esta ronda suma <strong>+${pts} pts</strong>.</span></div>`;
   if      (sim.step==='groups')  html += noPtsBanner + renderSimGroups();
   else if (sim.step==='thirds')  html += noPtsBanner + renderSimThirds();
-  else if (sim.step==='r32') html += noPtsBanner + renderSimRound('r32','Ronda de 32 (P73–P88)',16,simGetR32Team,simGetR32Label,'thirds');
+  else if (sim.step==='r32') html += noPtsBanner + renderSimRound('r32','Ronda de 32 (P73–P88)',16,simGetR32Team,simGetR32Label, prefilled ? null : 'thirds');
   else if (sim.step==='r16') html += ptsBanner  + renderSimRound('r16','Octavos de Final (P89–P96)',8,simGetR16Team,simGetR16Label,'r32');
   else if (sim.step==='qf')  html += ptsBannerN(2) + renderSimRound('qf','Cuartos de Final (P97–P100)',4,simGetQFTeam,simGetQFLabel,'r16');
   else if (sim.step==='sf')  html += ptsBannerN(3) + renderSimRound('sf','Semifinales (P101–P102)',2,simGetSFTeam,simGetSFLabel,'qf');
@@ -2322,7 +2368,7 @@ function renderSimRound(round, title, count, getTeamFn, getLabelFn, prevStep) {
     qf:[''], sf:[''],
   };
   const qSize=Q_SIZE[round]||count, done=Object.keys(sim[round]).length;
-  let html = `<button onclick="simGoStep('${prevStep}')" class="btn btn-sm btn-secondary" style="margin-bottom:10px">← Atrás</button>
+  let html = `${prevStep ? `<button onclick="simGoStep('${prevStep}')" class="btn btn-sm btn-secondary" style="margin-bottom:10px">← Atrás</button>` : ''}
   <div class="card" style="margin-bottom:10px;padding:10px 14px">
     <div style="font-weight:800;font-size:.88rem;color:var(--accent)">${title}</div>
     <div style="font-size:.75rem;color:var(--text2);margin-top:2px">${done}/${count} partidos definidos · tocá el equipo ganador</div>
