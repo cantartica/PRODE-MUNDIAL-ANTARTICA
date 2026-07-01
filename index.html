@@ -1777,6 +1777,7 @@ function offSetThirdSlot(mi, team) {
   delete offSim.r32[mi];
   const r16i=R32_TO_R16[mi]; if(r16i!==undefined){delete offSim.r16[r16i]; const qfi=R16_TO_QF[r16i]; if(qfi!==undefined){delete offSim.qf[qfi]; const sfi=QF_TO_SF[qfi]; if(sfi!==undefined) delete offSim.sf[sfi];}}
   offSim.final=null; offSim.thirdPlace=null;
+  offAutoSave();
   renderAdmin();
 }
 function offResolvePos(pos) { const rank=parseInt(pos[0]),grp=pos[1]; return (offSim.groupRanks[grp]||{})[rank]||''; }
@@ -1826,6 +1827,7 @@ function offSetRank(grp,rank,team) {
   for(const r of [1,2,3]) if(offSim.groupRanks[grp][r]===team&&r!==rank) delete offSim.groupRanks[grp][r];
   if(team) offSim.groupRanks[grp][rank]=team; else delete offSim.groupRanks[grp][rank];
   offSim.thirds=[]; offSim.thirdSlots={}; offSim.r32={}; offSim.r16={}; offSim.qf={}; offSim.sf={}; offSim.final=null; offSim.thirdPlace=null;
+  offAutoSave();
   renderAdmin();
 }
 function offToggleThird(team) {
@@ -1833,6 +1835,7 @@ function offToggleThird(team) {
   const idx=offSim.thirds.indexOf(team);
   if(idx>=0) offSim.thirds.splice(idx,1); else if(offSim.thirds.length<8) offSim.thirds.push(team);
   offSim.thirdSlots={}; offSim.r32={}; offSim.r16={}; offSim.qf={}; offSim.sf={}; offSim.final=null; offSim.thirdPlace=null;
+  offAutoSave();
   renderAdmin();
 }
 function offPickWinner(round,idx,team) {
@@ -1842,13 +1845,28 @@ function offPickWinner(round,idx,team) {
   else if(round==='r16'){ const qfi=R16_TO_QF[idx]; if(qfi!==undefined){delete offSim.qf[qfi]; const sfi=QF_TO_SF[qfi]; if(sfi!==undefined) delete offSim.sf[sfi];} offSim.final=null; offSim.thirdPlace=null; }
   else if(round==='qf'){ const sfi=QF_TO_SF[idx]; if(sfi!==undefined) delete offSim.sf[sfi]; offSim.final=null; offSim.thirdPlace=null; }
   else if(round==='sf'){ offSim.final=null; offSim.thirdPlace=null; }
+  offAutoSave();
   renderAdmin();
 }
 function offGoStep(step) { ensureOffSim(); offSim.step=step; renderAdmin(); }
+
+// Construye el objeto official a partir del estado actual del admin.
+function offBuildOfficial() {
+  return { groupRanks:offSim.groupRanks, thirds:offSim.thirds, thirdSlots:offSim.thirdSlots, r32:offSim.r32, r16:offSim.r16, qf:offSim.qf, sf:offSim.sf, final:offSim.final, thirdPlace:offSim.thirdPlace, savedAt:Date.now() };
+}
+// Guardado AUTOMÁTICO: se llama en cada cambio del admin (grupos, terceros, ganadores).
+// Persiste en localStorage + Firebase sin toast ni re-render, así nunca se pierde nada
+// aunque el admin recargue o cierre a mitad de camino.
+function offAutoSave() {
+  ensureOffSim();
+  data.official = offBuildOfficial();
+  saveOfficialNode();
+}
+// Guardado EXPLÍCITO (botón): igual que el auto pero con confirmación visible.
 function offSaveOfficial() {
   ensureOffSim();
-  data.official = { groupRanks:offSim.groupRanks, thirds:offSim.thirds, thirdSlots:offSim.thirdSlots, r32:offSim.r32, r16:offSim.r16, qf:offSim.qf, sf:offSim.sf, final:offSim.final, thirdPlace:offSim.thirdPlace, savedAt:Date.now() };
-  saveOfficialNode(); showToast('✅ Resultados oficiales guardados'); renderAdmin();
+  data.official = offBuildOfficial();
+  saveOfficialNode(); showToast('✅ Resultados guardados'); renderAdmin();
 }
 function offReset() {
   offSim=null; data.official=null; saveOfficialNode(); showToast('🗑 Resultados eliminados'); renderAdmin();
@@ -1949,8 +1967,8 @@ function renderOfficialTab() {
         </div>`;
       }
       const done=Object.keys(o[cfg.store]).length;
+      h+=`<div style="margin-top:10px;padding:8px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:8px;font-size:.72rem;color:#86efac;text-align:center">💾 Se guarda solo en cada toque — podés cerrar y volver, no se pierde nada. (${done}/${cfg.count} definidos)</div>`;
       if(done===cfg.count) h+=`<button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="offGoStep('${cfg.next}')">Siguiente: ${cfg.nextLabel} →</button>`;
-      else h+=`<div class="text-sm text-2" style="text-align:center;padding:8px">${done}/${cfg.count} definidos</div>`;
     }
 
     if (finalStep) {
@@ -1960,18 +1978,18 @@ function renderOfficialTab() {
       const tp1=sf1W===sf1H?sf1A:sf1H, tp2=sf2W===sf2H?sf2A:sf2H;
       h += `<div style="font-size:.8rem;font-weight:700;color:var(--gold);margin-bottom:10px">3er Puesto (P103)</div>
         <div class="sim-match" style="margin-bottom:12px">
-          <button onclick="offSim.thirdPlace='${escJs(tp1||'')}';renderAdmin();" class="sim-team-btn ${o.thirdPlace===tp1&&tp1?'sim-winner':''}" ${!tp1?'disabled':''}>${escHtml(tp1||'?')}</button>
+          <button onclick="offSim.thirdPlace='${escJs(tp1||'')}';offAutoSave();renderAdmin();" class="sim-team-btn ${o.thirdPlace===tp1&&tp1?'sim-winner':''}" ${!tp1?'disabled':''}>${escHtml(tp1||'?')}</button>
           <span class="vs">vs</span>
-          <button onclick="offSim.thirdPlace='${escJs(tp2||'')}';renderAdmin();" class="sim-team-btn ${o.thirdPlace===tp2&&tp2?'sim-winner':''}" ${!tp2?'disabled':''}>${escHtml(tp2||'?')}</button>
+          <button onclick="offSim.thirdPlace='${escJs(tp2||'')}';offAutoSave();renderAdmin();" class="sim-team-btn ${o.thirdPlace===tp2&&tp2?'sim-winner':''}" ${!tp2?'disabled':''}>${escHtml(tp2||'?')}</button>
         </div>
         <div style="font-size:.8rem;font-weight:700;color:var(--gold);margin-bottom:10px">Final (P104)</div>
         <div class="sim-match" style="margin-bottom:16px">
-          <button onclick="offSim.final='${escJs(sf1W||'')}';renderAdmin();" class="sim-team-btn ${o.final===sf1W&&sf1W?'sim-winner':''}" ${!sf1W?'disabled':''}>${escHtml(sf1W||'?')}</button>
+          <button onclick="offSim.final='${escJs(sf1W||'')}';offAutoSave();renderAdmin();" class="sim-team-btn ${o.final===sf1W&&sf1W?'sim-winner':''}" ${!sf1W?'disabled':''}>${escHtml(sf1W||'?')}</button>
           <span class="vs">vs</span>
-          <button onclick="offSim.final='${escJs(sf2W||'')}';renderAdmin();" class="sim-team-btn ${o.final===sf2W&&sf2W?'sim-winner':''}" ${!sf2W?'disabled':''}>${escHtml(sf2W||'?')}</button>
+          <button onclick="offSim.final='${escJs(sf2W||'')}';offAutoSave();renderAdmin();" class="sim-team-btn ${o.final===sf2W&&sf2W?'sim-winner':''}" ${!sf2W?'disabled':''}>${escHtml(sf2W||'?')}</button>
         </div>`;
       if (o.final && o.thirdPlace) {
-        h += `<button class="btn btn-primary" style="width:100%;font-size:.9rem;padding:12px" onclick="offSaveOfficial()">💾 Guardar resultados oficiales</button>`;
+        h += `<button class="btn btn-primary" style="width:100%;font-size:.9rem;padding:12px" onclick="offSaveOfficial()">💾 Guardar (campeón y 3° definidos)</button>`;
       }
     }
   }
